@@ -3,6 +3,7 @@ import Link from "next/link";
 import { verifyHouseholdMember } from "@/lib/household/dal";
 import { listSettlementsQuery } from "@/lib/household/queries";
 import { fromCentsToString } from "@/lib/household/money";
+import { resolveErrorCode } from "@/lib/household/error-codes";
 import { deleteSettlement } from "@/app/dashboard/households/[id]/settlements/actions";
 
 export const metadata: Metadata = {
@@ -13,11 +14,6 @@ type Params = Promise<{ id: string }>;
 type SearchParams = Promise<{ error?: string }>;
 
 const PAGE_LIMIT = 50;
-
-const ERROR_MESSAGES: Record<string, string> = {
-  notFound: "Settlement not found",
-  forbidden: "Only the parties or creator can delete",
-};
 
 export default async function SettlementsListPage({
   params,
@@ -31,7 +27,11 @@ export default async function SettlementsListPage({
   const session = await verifyHouseholdMember(id);
   const settlements = await listSettlementsQuery(id, PAGE_LIMIT);
 
-  const errorMessage = error ? ERROR_MESSAGES[error] : null;
+  const errorMessage = resolveErrorCode(error, {
+    notFound: "Settlement not found",
+    forbidden: "Only the parties or creator can delete",
+    raced: "Someone else just changed this settlement — refresh and try again",
+  });
 
   return (
     <div className="space-y-6">

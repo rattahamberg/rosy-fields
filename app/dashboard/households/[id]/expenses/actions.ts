@@ -19,14 +19,10 @@ import {
   validateExact,
 } from "@/lib/household/money";
 import type { FormState } from "@/lib/forms";
-export type { FormState } from "@/lib/forms";
-import type { loadHouseholdContext as LoadCtx } from "@/lib/household/dal";
+import type { HouseholdContext } from "@/lib/household/dal";
+import { SPLIT_MODE_SET, type SplitMode } from "@/lib/household/expense-constants";
 
-type Session = Awaited<ReturnType<typeof LoadCtx>>["session"];
-
-const SPLIT_MODES = ["equal", "shares", "exact"] as const;
-type SplitMode = (typeof SPLIT_MODES)[number];
-const SPLIT_MODE_SET = new Set<string>(SPLIT_MODES);
+type Session = HouseholdContext["session"];
 
 const DESCRIPTION_MAX = 200;
 
@@ -142,7 +138,7 @@ function parseExpenseForm(formData: FormData): ParsedForm {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(spentAtRaw)) {
     return { ok: false, error: "Date must be YYYY-MM-DD" };
   }
-  if (!SPLIT_MODE_SET.has(splitModeRaw)) {
+  if (!SPLIT_MODE_SET.has(splitModeRaw as SplitMode)) {
     return { ok: false, error: "Invalid split mode" };
   }
   const splitMode = splitModeRaw as SplitMode;
@@ -162,8 +158,10 @@ function parseExpenseForm(formData: FormData): ParsedForm {
     for (const id of participantIds) {
       const raw = String(formData.get(`shares:${id}`) ?? "1");
       const n = Number(raw);
-      if (!Number.isFinite(n) || n < 0) {
-        return { ok: false, error: `Invalid share for participant` };
+      // Integer + non-negative + finite — fractional shares would crash
+      // BigInt(n) downstream in distributeByShares.
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+        return { ok: false, error: "Shares must be non-negative integers" };
       }
       shares.set(id, n);
     }
@@ -448,10 +446,15 @@ export async function deleteExpense(formData: FormData): Promise<void> {
     if (!allowed.has(session.user.id)) {
       return { status: "forbidden" as const };
     }
-    await tx
+    // Mirror editExpenseAction: re-check deletedAt in the UPDATE WHERE so a
+    // concurrent soft-delete that races us doesn't get its timestamp
+    // overwritten. Lock holds for the txn duration but defense-in-depth.
+    const updated = await tx
       .update(expense)
       .set({ deletedAt: new Date() })
-      .where(eq(expense.id, expenseId));
+      .where(and(eq(expense.id, expenseId), isNull(expense.deletedAt)))
+      .returning({ id: expense.id });
+    if (updated.length === 0) return { status: "raced" as const };
     await writeHouseholdAudit(
       {
         householdId,
@@ -478,6 +481,11 @@ export async function deleteExpense(formData: FormData): Promise<void> {
   if (outcome.status === "forbidden") {
     return redirect(
       `/dashboard/households/${householdId}/expenses/${expenseId}?error=forbidden`,
+    );
+  }
+  if (outcome.status === "raced") {
+    return redirect(
+      `/dashboard/households/${householdId}/expenses/${expenseId}?error=raced`,
     );
   }
 

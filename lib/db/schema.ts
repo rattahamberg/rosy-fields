@@ -260,7 +260,10 @@ export const expenseSplit = pgTable(
   (t) => [
     primaryKey({ columns: [t.expenseId, t.userId] }),
     index("expense_split_user_id_idx").on(t.userId),
-    check("expense_split_share_nonneg", sql`${t.shareCents} >= 0`),
+    // Defense-in-depth: app code already rejects 0-share participants
+    // (uncheck them instead). Keeping the DB constraint > 0 means a direct
+    // INSERT can't corrupt balances by inserting a free-rider split.
+    check("expense_split_share_positive", sql`${t.shareCents} > 0`),
   ],
 );
 
@@ -334,5 +337,8 @@ export const householdAuditLog = pgTable(
       t.createdAt.desc(),
     ),
     index("household_audit_log_actor_idx").on(t.actorUserId),
+    // Standalone created_at index for the cron purge — the composite above
+    // can't serve a `WHERE created_at < ?` query without a household filter.
+    index("household_audit_log_created_at_idx").on(t.createdAt),
   ],
 );

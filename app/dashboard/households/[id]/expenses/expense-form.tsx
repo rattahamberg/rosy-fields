@@ -14,10 +14,8 @@ import {
   fromStringToCents,
 } from "@/lib/household/money";
 import type { Member } from "@/lib/household/queries";
-
-type SplitMode = "equal" | "shares" | "exact";
-
-const TODAY = () => new Date().toISOString().slice(0, 10);
+import { SPLIT_MODES, type SplitMode } from "@/lib/household/expense-constants";
+import { todayISO } from "@/lib/dates";
 
 const INITIAL: FormState = { ok: false, error: "" };
 
@@ -70,11 +68,12 @@ export function ExpenseForm({
   // unparseable / empty), sum, compare against the total. Avoids the
   // 0.1+0.2=0.30000000000000004 floating-point trap on the display hint.
   const remainingCents = useMemo(() => {
-    if (splitMode !== "exact") return 0n;
+    if (splitMode !== "exact" || !amount) return 0n;
     let amountCents: bigint;
     try {
-      amountCents = fromStringToCents(amount || "0");
+      amountCents = fromStringToCents(amount);
     } catch {
+      // User is mid-typing or input is invalid — treat amount as 0.
       return 0n;
     }
     let sum = 0n;
@@ -131,7 +130,7 @@ export function ExpenseForm({
           <input
             type="date"
             name="spentAt"
-            defaultValue={initial?.spentAt ?? TODAY()}
+            defaultValue={initial?.spentAt ?? todayISO()}
             required
             className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           />
@@ -159,7 +158,7 @@ export function ExpenseForm({
         </span>
         <input type="hidden" name="splitMode" value={splitMode} />
         <div className="inline-flex rounded-md border border-zinc-300 dark:border-zinc-700">
-          {(["equal", "shares", "exact"] as const).map((m) => (
+          {SPLIT_MODES.map((m) => (
             <button
               key={m}
               type="button"

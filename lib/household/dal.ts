@@ -2,34 +2,54 @@ import "server-only";
 
 import { forbidden } from "next/navigation";
 import { cache } from "react";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { householdMember } from "@/lib/db/schema";
 import { verifySession } from "@/lib/dal";
 
-// Authorization gate for household-scoped routes (`/dashboard/households/[id]/*`).
-// Admin role does NOT bypass — admins are for managing households, not snooping
-// inside their finances. If an admin needs ledger access, they add themselves
-// as a member first.
+// Authorization gates for household-scoped routes.
 //
-// Cached per-request via react.cache() so layout + page + child fetches share
-// one membership lookup.
-export const verifyHouseholdMember = cache(async (householdId: string) => {
-  const result = await loadHouseholdContext(householdId);
-  return result.session;
-});
+// Admin role does NOT bypass these — admins are for managing households,
+// not snooping inside their finances. If an admin needs ledger access,
+// they add themselves as a member first.
+//
+// Two flavors, picked by need:
+//   verifyHouseholdMember(id)   — gate-only. Cheap SELECT 1 on the
+//                                 (household_id, user_id) PK. Use in pages.
+//   loadHouseholdContext(id)    — gate AND returns memberIds. Use in
+//                                 mutation actions that need the member set.
+// Both are react.cache()-wrapped so repeated calls in one render dedupe.
 
-// Combined gate + member-set fetch in a single SELECT. Use this in mutation
-// actions that need the member set (to validate participants etc.) — avoids
-// the two-roundtrip pattern of calling verifyHouseholdMember + then loading
-// the members separately.
-export const loadHouseholdContext = cache(async (householdId: string) => {
+export type HouseholdContext = {
+  session: Awaited<ReturnType<typeof verifySession>>;
+  memberIds: Set<string>;
+};
+
+export const verifyHouseholdMember = cache(async (householdId: string) => {
   const session = await verifySession();
-  const rows = await db
+  const [row] = await db
     .select({ userId: householdMember.userId })
     .from(householdMember)
-    .where(eq(householdMember.householdId, householdId));
-  const memberIds = new Set(rows.map((r) => r.userId));
-  if (!memberIds.has(session.user.id)) forbidden();
-  return { session, memberIds };
+    .where(
+      and(
+        eq(householdMember.householdId, householdId),
+        eq(householdMember.userId, session.user.id),
+      ),
+    )
+    .limit(1);
+  if (!row) forbidden();
+  return session;
 });
+
+export const loadHouseholdContext = cache(
+  async (householdId: string): Promise<HouseholdContext> => {
+    const session = await verifySession();
+    const rows = await db
+      .select({ userId: householdMember.userId })
+      .from(householdMember)
+      .where(eq(householdMember.householdId, householdId));
+    const memberIds = new Set(rows.map((r) => r.userId));
+    if (!memberIds.has(session.user.id)) forbidden();
+    return { session, memberIds };
+  },
+);

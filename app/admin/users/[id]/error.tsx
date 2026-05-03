@@ -1,13 +1,13 @@
 "use client";
 
 import {
-  AdminDetailError,
-  type AdminDetailErrorProps,
-} from "@/app/admin/_components";
+  DetailError,
+  type DetailErrorProps,
+} from "@/app/_components/detail-error";
 
-export default function UserDetailError(props: AdminDetailErrorProps) {
+export default function UserDetailError(props: DetailErrorProps) {
   return (
-    <AdminDetailError
+    <DetailError
       {...props}
       label="user"
       logTag="admin user-detail error"

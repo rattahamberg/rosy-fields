@@ -67,7 +67,17 @@ ALL mutations must write an audit row in the SAME transaction as the mutation. V
 
 ## Forms
 
-`FormState` is a project-wide convention living in `lib/forms.ts` — every Server Action that pairs with `useActionState` returns this shape. Don't redeclare it locally.
+`FormState` is a project-wide convention living in `lib/forms.ts` — every Server Action that pairs with `useActionState` returns this shape. Don't redeclare it locally and don't re-export it from action files (consumers import from `@/lib/forms` directly).
+
+## Error redirect convention
+
+Server Actions that redirect on failure use a typed enum from `lib/household/error-codes.ts`: `LedgerErrorCode = "notFound" | "forbidden" | "raced"`. Pages map the code to a human-readable message via `resolveErrorCode(code, overrides?)`; arbitrary or absent codes resolve to `null` (renders nothing). Don't reflect raw error strings in `?error=...` — that's a phishing surface.
+
+## Shared utilities
+
+- `lib/dates.ts` — `todayISO()` for `<input type="date">` defaults.
+- `lib/household/expense-constants.ts` — single source for `SPLIT_MODES`, `SplitMode`, `SPLIT_MODE_SET`, and `isSplitMode()`. Don't redeclare locally.
+- `lib/household/error-codes.ts` — see above.
 
 ## Migrations
 

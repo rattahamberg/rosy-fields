@@ -10,7 +10,6 @@ import { db } from "@/lib/db";
 import { settlement } from "@/lib/db/schema";
 import { fromStringToCents, serializeMoney } from "@/lib/household/money";
 import type { FormState } from "@/lib/forms";
-export type { FormState } from "@/lib/forms";
 
 const NOTE_MAX = 200;
 
@@ -131,10 +130,16 @@ export async function deleteSettlement(formData: FormData): Promise<void> {
     if (!allowed.has(session.user.id)) {
       return { status: "forbidden" as const };
     }
-    await tx
+    // Re-check deletedAt in the UPDATE so a concurrent soft-delete doesn't
+    // get its timestamp clobbered.
+    const updated = await tx
       .update(settlement)
       .set({ deletedAt: new Date() })
-      .where(eq(settlement.id, settlementId));
+      .where(
+        and(eq(settlement.id, settlementId), isNull(settlement.deletedAt)),
+      )
+      .returning({ id: settlement.id });
+    if (updated.length === 0) return { status: "raced" as const };
     await writeHouseholdAudit(
       {
         householdId,
@@ -162,6 +167,11 @@ export async function deleteSettlement(formData: FormData): Promise<void> {
   if (outcome.status === "forbidden") {
     return redirect(
       `/dashboard/households/${householdId}/settlements?error=forbidden`,
+    );
+  }
+  if (outcome.status === "raced") {
+    return redirect(
+      `/dashboard/households/${householdId}/settlements?error=raced`,
     );
   }
 

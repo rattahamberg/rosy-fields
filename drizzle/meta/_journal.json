@@ -50,6 +50,13 @@
       "when": 1777786170264,
       "tag": "0006_ledger_index_optimizations",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777787969876,
+      "tag": "0007_ledger_constraint_and_audit_idx",
+      "breakpoints": true
     }
   ]
 }

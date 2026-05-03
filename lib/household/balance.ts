@@ -22,8 +22,11 @@ export type MemberBalance = {
 //   - all settlement.amount_cents this user PAID OUT
 // Excludes soft-deleted rows.
 //
-// The settlement scan is a SINGLE pass with a CASE-folded sum (was two
-// passes — `settled_out` and `settled_in` — pre-optimization).
+// The `settled` CTE uses UNION ALL of two SELECTs against `settlement` —
+// honestly two symmetric partial-index scans, not "one pass". A single-scan
+// alternative requires `LEFT JOIN settlement ON (from = u.id OR to = u.id)`
+// which defeats the index on `(household_id, settled_at)`. Two indexed
+// scans is faster than one OR-join.
 //
 // NOTE: Postgres returns BIGINT to the wire as text. The `db.execute<...>`
 // generic types `balance_cents` as `string`; we wrap with `BigInt()` below.

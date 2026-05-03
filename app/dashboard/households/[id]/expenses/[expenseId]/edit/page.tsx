@@ -10,6 +10,7 @@ import {
   user,
 } from "@/lib/db/schema";
 import { centsToDecimalString } from "@/lib/household/money";
+import { isSplitMode } from "@/lib/household/expense-constants";
 import { ExpenseForm } from "../../expense-form";
 
 export const metadata: Metadata = {
@@ -17,8 +18,6 @@ export const metadata: Metadata = {
 };
 
 type Params = Promise<{ id: string; expenseId: string }>;
-
-const SPLIT_MODES = new Set(["equal", "shares", "exact"]);
 
 export default async function EditExpensePage({
   params,
@@ -46,10 +45,11 @@ export default async function EditExpensePage({
 
   if (!target || target.householdId !== id) notFound();
 
-  // Validate the schema-text splitMode at runtime — the column type is
-  // `text` so TS gives us `string`, but the DB value should match the
-  // canonical SPLIT_MODES set.
-  if (!SPLIT_MODES.has(target.splitMode)) notFound();
+  // Defense-in-depth: the DB CHECK already restricts split_mode, but if a
+  // schema migration ever introduces a new mode the runtime guard catches
+  // stale data. Use forbidden() because it's a data-integrity issue, not a
+  // missing row.
+  if (!isSplitMode(target.splitMode)) forbidden();
 
   const canEdit =
     session.user.id === target.paidBy ||
@@ -90,6 +90,7 @@ export default async function EditExpensePage({
     amount: centsToDecimalString(target.amountCents),
     paidBy: target.paidBy,
     spentAt: target.spentAt,
+    // Safe: guarded by the isSplitMode() runtime check above.
     splitMode: target.splitMode as "equal" | "shares" | "exact",
     notes: target.notes ?? "",
     participantIds: splits.map((s) => s.userId),

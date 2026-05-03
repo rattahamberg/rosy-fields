@@ -7,8 +7,7 @@ import type { FormState } from "@/lib/forms";
 import { PrimaryButton } from "@/app/_components/primary-button";
 import { MoneyInput } from "@/app/_components/money-input";
 import type { Member } from "@/lib/household/queries";
-
-const TODAY = () => new Date().toISOString().slice(0, 10);
+import { todayISO } from "@/lib/dates";
 
 const INITIAL: FormState = { ok: false, error: "" };
 
@@ -89,7 +88,7 @@ export function SettlementForm({
           <input
             type="date"
             name="settledAt"
-            defaultValue={TODAY()}
+            defaultValue={todayISO()}
             required
             className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           />

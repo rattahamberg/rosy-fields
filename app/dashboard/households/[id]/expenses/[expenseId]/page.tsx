@@ -6,6 +6,7 @@ import { verifyHouseholdMember } from "@/lib/household/dal";
 import { db } from "@/lib/db";
 import { expense, expenseSplit, user } from "@/lib/db/schema";
 import { fromCentsToString } from "@/lib/household/money";
+import { resolveErrorCode } from "@/lib/household/error-codes";
 import { deleteExpense } from "@/app/dashboard/households/[id]/expenses/actions";
 
 export const metadata: Metadata = {
@@ -14,11 +15,6 @@ export const metadata: Metadata = {
 
 type Params = Promise<{ id: string; expenseId: string }>;
 type SearchParams = Promise<{ error?: string }>;
-
-const ERROR_MESSAGES: Record<string, string> = {
-  notFound: "Expense not found",
-  forbidden: "Only the payer or creator can delete",
-};
 
 export default async function ExpenseDetailPage({
   params,
@@ -79,7 +75,11 @@ export default async function ExpenseDetailPage({
     session.user.id === target.paidBy ||
     session.user.id === target.createdByUserId;
 
-  const errorMessage = error ? ERROR_MESSAGES[error] : null;
+  const errorMessage = resolveErrorCode(error, {
+    notFound: "Expense not found",
+    forbidden: "Only the payer or creator can delete",
+    raced: "Someone else just changed this expense — refresh and try again",
+  });
 
   return (
     <div className="space-y-6">

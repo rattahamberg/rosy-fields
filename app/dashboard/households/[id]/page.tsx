@@ -21,6 +21,18 @@ type Params = Promise<{ id: string }>;
 
 const RECENT_LIMIT = 8;
 
+// Hoisted out of HouseholdHome — type lives at module scope so it's
+// findable and doesn't imply runtime-closure dependencies.
+type ActivityItem = {
+  kind: "expense" | "settlement";
+  id: string;
+  date: string;
+  title: string;
+  subtitle: string;
+  amount: bigint;
+  href: string;
+};
+
 export default async function HouseholdHome({ params }: { params: Params }) {
   const { id } = await params;
   const session = await verifyHouseholdMember(id);
@@ -43,26 +55,6 @@ export default async function HouseholdHome({ params }: { params: Params }) {
   const suggestions = simplifyDebts(balances);
   const balanceById = new Map(balances.map((b) => [b.userId, b]));
 
-  // Interleave recent activity by date.
-  type ActivityItem =
-    | {
-        kind: "expense";
-        id: string;
-        date: string;
-        title: string;
-        subtitle: string;
-        amount: bigint;
-        href: string;
-      }
-    | {
-        kind: "settlement";
-        id: string;
-        date: string;
-        title: string;
-        subtitle: string;
-        amount: bigint;
-        href: string;
-      };
   const activity: ActivityItem[] = [
     ...recentExpenses.map((e) => ({
       kind: "expense" as const,
