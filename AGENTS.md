@@ -43,7 +43,21 @@ Every mutation MUST:
 
 ## Audit log
 
-`lib/admin/audit.ts` exposes `writeAudit(entry, options?)`. ALL admin mutations must write an audit row in the same transaction as the mutation. View-page audits use `after()` to avoid blocking response time. See **Audit context (`writeAudit`)** below for the call-site convention.
+Two audit logs, scoped:
+
+- `admin_audit_log` (writes via `lib/admin/audit.ts` → `writeAudit`) — admin-tier events (user view, household CRUD, member CRUD).
+- `household_audit_log` (writes via `lib/household/audit.ts` → `writeHouseholdAudit`) — household-tier events (expense CRUD, settlement CRUD). Scoped per household so admins don't see members' financial activity in the admin log.
+
+ALL mutations must write an audit row in the SAME transaction as the mutation. View-page audits use `after()`. See **Audit context** below for call-site conventions; both helpers share the same two-overload signature.
+
+## Household ledger
+
+- DAL: `lib/household/dal.ts` exposes `verifyHouseholdMember(householdId)`. **Admin role does NOT bypass this gate** — admins manage households, they don't auto-snoop financial contents. Add yourself as a member first.
+- Money math: ALL amounts are `bigint` cents. Never `number`, never `numeric`. Conversion via `lib/household/money.ts` (`fromStringToCents`, `fromCentsToString`, `distributeEqual`, `distributeByShares`, `validateExact`).
+- Soft-delete: `expense` and `settlement` use `deleted_at` instead of hard deletes. Edits create a new row + soft-delete the old. **Every read query must filter `WHERE deleted_at IS NULL`** — there are partial indexes on `(household_id) WHERE deleted_at IS NULL` for both tables.
+- Balance computation lives in `lib/household/balance.ts`: `computeBalances(householdId)` returns per-member nets; `simplifyDebts(balances)` runs the greedy creditor↔debtor matcher for "settle up" suggestions.
+- Frozen splits: members who join after an expense don't retroactively share it. `expense_split` rows are immutable per expense version.
+- Permissions: anyone in the household can view; only the original `paidBy` or `createdByUserId` can edit/delete an expense; settlements deletable by either party or the creator.
 
 ## Migrations
 

@@ -36,6 +36,13 @@
       "when": 1777781917009,
       "tag": "0004_session_expires_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777784422902,
+      "tag": "0005_expense_ledger",
+      "breakpoints": true
     }
   ]
 }

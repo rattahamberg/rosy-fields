@@ -8,6 +8,9 @@ import {
   uniqueIndex,
   primaryKey,
   jsonb,
+  bigint,
+  date,
+  check,
 } from "drizzle-orm/pg-core";
 
 export const user = pgTable(
@@ -191,5 +194,146 @@ export const adminAuditLog = pgTable(
   (t) => [
     index("admin_audit_log_actor_idx").on(t.actorUserId),
     index("admin_audit_log_created_at_idx").on(t.createdAt),
+  ],
+);
+
+// ---------- Household expense ledger (v1) ----------
+
+export const expense = pgTable(
+  "expense",
+  {
+    id: text("id").primaryKey(),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => household.id, { onDelete: "cascade" }),
+    paidBy: text("paid_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    amountCents: bigint("amount_cents", { mode: "bigint" }).notNull(),
+    currency: text("currency").notNull().default("USD"),
+    description: text("description").notNull(),
+    spentAt: date("spent_at").notNull(),
+    splitMode: text("split_mode").notNull(),
+    notes: text("notes"),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+    // Soft-delete: edits create a new row and flip the old row's deleted_at.
+    // All read paths filter on deleted_at IS NULL.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("expense_household_spent_at_idx").on(
+      t.householdId,
+      t.spentAt.desc(),
+    ),
+    index("expense_household_active_idx")
+      .on(t.householdId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index("expense_paid_by_idx").on(t.paidBy),
+    index("expense_created_by_idx").on(t.createdByUserId),
+    check("expense_amount_positive", sql`${t.amountCents} > 0`),
+    check(
+      "expense_split_mode_valid",
+      sql`${t.splitMode} IN ('equal', 'shares', 'exact')`,
+    ),
+  ],
+);
+
+export const expenseSplit = pgTable(
+  "expense_split",
+  {
+    expenseId: text("expense_id")
+      .notNull()
+      .references(() => expense.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    shareCents: bigint("share_cents", { mode: "bigint" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.expenseId, t.userId] }),
+    index("expense_split_user_id_idx").on(t.userId),
+    check("expense_split_share_nonneg", sql`${t.shareCents} >= 0`),
+  ],
+);
+
+export const settlement = pgTable(
+  "settlement",
+  {
+    id: text("id").primaryKey(),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => household.id, { onDelete: "cascade" }),
+    fromUserId: text("from_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    toUserId: text("to_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    amountCents: bigint("amount_cents", { mode: "bigint" }).notNull(),
+    currency: text("currency").notNull().default("USD"),
+    note: text("note"),
+    settledAt: date("settled_at").notNull(),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("settlement_household_settled_at_idx").on(
+      t.householdId,
+      t.settledAt.desc(),
+    ),
+    index("settlement_household_active_idx")
+      .on(t.householdId)
+      .where(sql`${t.deletedAt} IS NULL`),
+    index("settlement_from_user_idx").on(t.fromUserId),
+    index("settlement_to_user_idx").on(t.toUserId),
+    check("settlement_amount_positive", sql`${t.amountCents} > 0`),
+    check(
+      "settlement_distinct_parties",
+      sql`${t.fromUserId} <> ${t.toUserId}`,
+    ),
+  ],
+);
+
+export const householdAuditLog = pgTable(
+  "household_audit_log",
+  {
+    id: text("id").primaryKey(),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => household.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    actorEmail: text("actor_email"),
+    action: text("action").notNull(),
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    metadata: jsonb("metadata"),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("household_audit_log_household_idx").on(
+      t.householdId,
+      t.createdAt.desc(),
+    ),
+    index("household_audit_log_actor_idx").on(t.actorUserId),
   ],
 );

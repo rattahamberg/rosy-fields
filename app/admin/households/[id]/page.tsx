@@ -94,6 +94,16 @@ export default async function HouseholdDetailPage({
           <>
             Created {target.createdAt.toISOString()} by{" "}
             {target.createdByEmail ?? "—"}
+            {" · "}
+            <Link
+              href={`/dashboard/households/${target.id}`}
+              className="text-blue-600 hover:underline dark:text-blue-400"
+            >
+              View ledger →
+            </Link>
+            <span className="ml-1 text-xs text-zinc-400">
+              (admin must be a member to see contents)
+            </span>
           </>
         }
         backHref="/admin/households"

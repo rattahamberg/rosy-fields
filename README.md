@@ -3,12 +3,18 @@
 Personal Next.js 16 app: email/password auth, a dashboard, and an admin panel
 for searching users and curating households.
 
+## Features
+
+- Email/password auth (Better Auth)
+- Admin panel: user search, household CRUD with audit log
+- Household expense ledger: per-household shared expenses with equal/shares/exact splits, settlements, balance computation, and "simplify debts" suggestions
+
 ## Stack
 
 - **Next.js 16** (App Router; `proxy.ts` is the middleware file, NOT `middleware.ts`)
 - **React 19** with Server Components + Server Actions (`useActionState` for forms with field state)
 - **Better Auth 1.x** (`lib/auth.ts`) — email/password only
-- **Drizzle ORM** + **Neon Postgres** over WebSocket (`@neondatabase/serverless`)
+- **Drizzle ORM** + **Neon Postgres** over WebSocket (`@neondatabase/serverless`); money stored as `bigint` cents
 - **Tailwind v4**, deployed on **Vercel**
 
 ## First-time setup
