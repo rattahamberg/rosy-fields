@@ -63,6 +63,13 @@ type DrizzleClient =
 // literal) would resolve to Overload 2 and trigger a header read inside
 // the open transaction — the very lock-window bug we want to prevent.
 // `never` makes that variable case a hard type error.
+//
+// Examples:
+//   writeAudit(e, { client: tx, net })  // OK   — Overload 1
+//   writeAudit(e)                       // OK   — Overload 2 (after() use)
+//   writeAudit(e, { client: tx })       // ERROR — both overloads reject
+//   const opts = { client: tx };
+//   writeAudit(e, opts);                // ERROR — `client?: never` blocks it
 export function writeAudit(
   entry: AuditEntry,
   options: { client: DrizzleClient; net: NetworkContext },
@@ -71,6 +78,11 @@ export function writeAudit(
   entry: AuditEntry,
   options?: { client?: never; net?: NetworkContext },
 ): Promise<void>;
+// The implementation signature uses `client?: undefined` (not `never`)
+// because the body needs `DrizzleClient | undefined` for the
+// `options.client ?? db` fallback. The body would be untypeable with
+// `client?: never`. The public overloads above carry the actual contract;
+// the implementation signature is not callable directly.
 export async function writeAudit(
   entry: AuditEntry,
   options:

@@ -16,6 +16,8 @@
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 -- Daily at 03:00 UTC: drop expired sessions older than a day of grace.
+-- Uses session_expires_at_idx (drizzle/0004_session_expires_idx.sql).
+-- Without that index this DELETE seq-scans the session table.
 SELECT cron.schedule(
   'purge-expired-sessions',
   '0 3 * * *',
@@ -23,6 +25,7 @@ SELECT cron.schedule(
 );
 
 -- Weekly on Sunday at 03:30 UTC: drop audit log entries older than 90 days.
+-- Uses admin_audit_log_created_at_idx for the range scan.
 SELECT cron.schedule(
   'purge-old-audit-log',
   '30 3 * * 0',

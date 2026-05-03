@@ -9,19 +9,26 @@ const SIZE_CLASS: Record<Size, string> = {
   md: "px-3 py-2 text-sm",
 };
 
-// `formAction` / `formMethod` / `formEncType` / `formTarget` let a caller
-// redirect a form submission to an arbitrary endpoint, bypassing the bound
-// Server Action. `form` (HTML IDref to a form by element id) lets a caller
-// associate the button with an unrelated form. All five are blocked at the
-// type level so the primitive stays safe to share across the codebase.
-type ButtonProps = Omit<
-  React.ButtonHTMLAttributes<HTMLButtonElement>,
+// Attributes blocked at the type level so the primitive is safe to share:
+//   `className`           — composed internally; callers append via the
+//                           explicit `className` prop in the intersection.
+//   `form`                — IDref associating the button with a different
+//                           form by element id.
+//   `formAction` / `formMethod` / `formEncType` / `formTarget`
+//                         — let a caller redirect form submission to an
+//                           arbitrary endpoint, bypassing the bound Server
+//                           Action.
+type BlockedButtonProps =
   | "className"
   | "form"
   | "formAction"
   | "formMethod"
   | "formEncType"
-  | "formTarget"
+  | "formTarget";
+
+type ButtonProps = Omit<
+  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  BlockedButtonProps
 >;
 
 export function PrimaryButton({

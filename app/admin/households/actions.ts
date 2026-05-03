@@ -138,6 +138,10 @@ export async function renameHouseholdAction(
 
   if (!result.found) return { ok: false, error: "Household not found" };
 
+  // Both `changed` and `!changed` return ok:true so the form closes cleanly
+  // for the user. Surfacing "no change" would be UX noise — the rename
+  // succeeded in the sense that the requested name is now the household's
+  // name, regardless of whether an UPDATE was issued.
   revalidatePath(`/admin/households/${householdId}`);
   revalidatePath("/admin/households");
   return { ok: true };
@@ -217,9 +221,12 @@ export async function addMember(formData: FormData): Promise<void> {
 
   // No SELECT pre-checks — relies on FK constraints. Eliminates TOCTOU race
   // where a household or user is deleted between the check and the insert.
-  let mutated = false;
+  // The transaction returns its outcome as a discriminated value rather
+  // than mutating a flag in an outer scope (matches the deleteHousehold
+  // pattern; avoids the closure-mutation smell).
+  let outcome: { mutated: boolean };
   try {
-    await db.transaction(async (tx) => {
+    outcome = await db.transaction(async (tx) => {
       // RETURNING tells us whether a row actually got inserted (vs the
       // conflict-do-nothing no-op case). Skip the audit row when no insert
       // happened — otherwise we'd write a phantom "member added" entry for
@@ -233,8 +240,7 @@ export async function addMember(formData: FormData): Promise<void> {
         })
         .onConflictDoNothing()
         .returning({ userId: householdMember.userId });
-      if (inserted.length === 0) return;
-      mutated = true;
+      if (inserted.length === 0) return { mutated: false };
       await writeAudit(
         {
           actorUserId: session.user.id,
@@ -245,6 +251,7 @@ export async function addMember(formData: FormData): Promise<void> {
         },
         { client: tx, net },
       );
+      return { mutated: true };
     });
   } catch (err) {
     if (isFkViolation(err)) {
@@ -259,7 +266,7 @@ export async function addMember(formData: FormData): Promise<void> {
 
   // Only revalidate when something actually changed — saves a wasted RSC
   // cache invalidation on the already-member case.
-  if (mutated) {
+  if (outcome.mutated) {
     revalidatePath(`/admin/households/${householdId}`);
     revalidatePath(`/admin/users/${userId}`);
   }
@@ -278,8 +285,7 @@ export async function removeMember(formData: FormData): Promise<void> {
 
   const net = await readNetworkContext();
 
-  let mutated = false;
-  await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     // RETURNING tells us whether a row actually got deleted. Skip the audit
     // row when nothing matched (already removed via race / double-submit).
     const deleted = await tx
@@ -291,8 +297,7 @@ export async function removeMember(formData: FormData): Promise<void> {
         ),
       )
       .returning({ userId: householdMember.userId });
-    if (deleted.length === 0) return;
-    mutated = true;
+    if (deleted.length === 0) return { mutated: false };
     await writeAudit(
       {
         actorUserId: session.user.id,
@@ -303,9 +308,10 @@ export async function removeMember(formData: FormData): Promise<void> {
       },
       { client: tx, net },
     );
+    return { mutated: true };
   });
 
-  if (mutated) {
+  if (outcome.mutated) {
     revalidatePath(`/admin/households/${householdId}`);
     revalidatePath(`/admin/users/${userId}`);
   }
