@@ -11,9 +11,9 @@ import {
 import {
   AdminTable,
   DetailHeader,
-  PrimaryButton,
   Section,
 } from "@/app/admin/_components";
+import { PrimaryButton } from "@/app/_components/primary-button";
 import { db } from "@/lib/db";
 import { household, householdMember, user } from "@/lib/db/schema";
 import { addMember, removeMember } from "@/app/admin/households/actions";

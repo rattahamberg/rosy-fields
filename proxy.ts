@@ -45,14 +45,12 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
-// `/admin/:path*` doesn't reliably match bare `/admin` in Next 16's matcher
-// syntax — list it explicitly. Same for `/dashboard`.
+// `:path*` is "zero or more" per Next 16 proxy.md, so `/admin/:path*`
+// matches both `/admin` and `/admin/anything`. Same for `/dashboard`.
 export const config = {
   matcher: [
     "/",
-    "/dashboard",
     "/dashboard/:path*",
-    "/admin",
     "/admin/:path*",
     "/login",
     "/signup",

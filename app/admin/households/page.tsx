@@ -7,7 +7,8 @@ import {
   ADMIN_SEARCH_MIN_LENGTH,
 } from "@/lib/admin/config";
 import { resolveSearch } from "@/lib/admin/search";
-import { AdminTable, PrimaryButton } from "@/app/admin/_components";
+import { AdminTable } from "@/app/admin/_components";
+import { PrimaryButton } from "@/app/_components/primary-button";
 import { db } from "@/lib/db";
 import { household, householdMember, user } from "@/lib/db/schema";
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { PrimaryButton } from "@/app/_components/primary-button";
 
 const SHOW_DIGEST = process.env.NODE_ENV !== "production";
 
@@ -12,6 +13,7 @@ export default function AdminError({
   unstable_retry,
 }: {
   error: Error & { digest?: string };
+  reset: () => void;
   unstable_retry: () => void;
 }) {
   useEffect(() => {
@@ -31,13 +33,9 @@ export default function AdminError({
             </>
           ) : null}
         </p>
-        <button
-          type="button"
-          onClick={() => unstable_retry()}
-          className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900"
-        >
+        <PrimaryButton type="button" onClick={() => unstable_retry()}>
           Try again
-        </button>
+        </PrimaryButton>
       </div>
     </div>
   );

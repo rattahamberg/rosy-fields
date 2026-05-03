@@ -1,11 +1,11 @@
 "use client";
 
-import { AdminDetailError } from "@/app/admin/_components";
+import {
+  AdminDetailError,
+  type AdminDetailErrorProps,
+} from "@/app/admin/_components";
 
-export default function HouseholdDetailError(props: {
-  error: Error & { digest?: string };
-  unstable_retry: () => void;
-}) {
+export default function HouseholdDetailError(props: AdminDetailErrorProps) {
   return (
     <AdminDetailError
       {...props}

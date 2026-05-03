@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { signIn } from "@/lib/auth-client";
 import { safePath } from "@/lib/safe-redirect";
-import { PrimaryButton } from "@/app/admin/_components";
+import { PrimaryButton } from "@/app/_components/primary-button";
 
 export function LoginForm() {
   const router = useRouter();

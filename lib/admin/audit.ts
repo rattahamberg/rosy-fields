@@ -41,9 +41,7 @@ export async function readNetworkContext(): Promise<NetworkContext> {
 }
 
 // Common base type for both the global `db` and a transaction handle from
-// `db.transaction(async (tx) => ...)`. The schema generic is the actual
-// project schema so callers can pass `tx` from inside a transaction without
-// fighting the type checker.
+// `db.transaction(async (tx) => ...)`.
 type Schema = typeof schema;
 type DrizzleClient =
   | PgDatabase<NeonQueryResultHKT, Schema, ExtractTablesWithRelations<Schema>>
@@ -53,14 +51,25 @@ type DrizzleClient =
       ExtractTablesWithRelations<Schema>
     >;
 
-export type WriteAuditOptions = {
-  client?: DrizzleClient;
-  net?: NetworkContext;
-};
-
+// Two-overload signature enforces the lock-window rule at the type level:
+//
+// - Inside a transaction (client provided), `net` is REQUIRED — caller
+//   must have pre-resolved it before opening the txn.
+// - Outside a transaction (after()-style background audits), `net` is
+//   optional and falls back to a header read.
+export function writeAudit(
+  entry: AuditEntry,
+  options: { client: DrizzleClient; net: NetworkContext },
+): Promise<void>;
+export function writeAudit(
+  entry: AuditEntry,
+  options?: { net?: NetworkContext },
+): Promise<void>;
 export async function writeAudit(
   entry: AuditEntry,
-  options: WriteAuditOptions = {},
+  options:
+    | { client: DrizzleClient; net: NetworkContext }
+    | { client?: undefined; net?: NetworkContext } = {},
 ): Promise<void> {
   const client = options.client ?? db;
   const net = options.net ?? (await readNetworkContext());

@@ -38,7 +38,7 @@ function isFkViolation(err: unknown): boolean {
     typeof err === "object" &&
     err !== null &&
     "code" in err &&
-    (err as { code: unknown }).code === PG_FK_VIOLATION
+    err.code === PG_FK_VIOLATION
   );
 }
 
@@ -219,14 +219,20 @@ export async function addMember(formData: FormData): Promise<void> {
   // where a household or user is deleted between the check and the insert.
   try {
     await db.transaction(async (tx) => {
-      await tx
+      // RETURNING tells us whether a row actually got inserted (vs the
+      // conflict-do-nothing no-op case). Skip the audit row when no insert
+      // happened — otherwise we'd write a phantom "member added" entry for
+      // an already-member case.
+      const inserted = await tx
         .insert(householdMember)
         .values({
           householdId,
           userId,
           addedByUserId: session.user.id,
         })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ userId: householdMember.userId });
+      if (inserted.length === 0) return;
       await writeAudit(
         {
           actorUserId: session.user.id,
@@ -267,14 +273,18 @@ export async function removeMember(formData: FormData): Promise<void> {
   const net = await readNetworkContext();
 
   await db.transaction(async (tx) => {
-    await tx
+    // RETURNING tells us whether a row actually got deleted. Skip the audit
+    // row when nothing matched (already removed via race / double-submit).
+    const deleted = await tx
       .delete(householdMember)
       .where(
         and(
           eq(householdMember.householdId, householdId),
           eq(householdMember.userId, userId),
         ),
-      );
+      )
+      .returning({ userId: householdMember.userId });
+    if (deleted.length === 0) return;
     await writeAudit(
       {
         actorUserId: session.user.id,

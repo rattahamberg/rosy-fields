@@ -9,6 +9,7 @@ export default function GlobalError({
   unstable_retry,
 }: {
   error: Error & { digest?: string };
+  reset: () => void;
   unstable_retry: () => void;
 }) {
   return (

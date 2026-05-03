@@ -4,6 +4,16 @@ import { useEffect } from "react";
 
 const SHOW_DIGEST = process.env.NODE_ENV !== "production";
 
+// Next 16's ErrorComponent passes BOTH `reset` and `unstable_retry`. Wrappers
+// must accept all three props so framework-supplied values aren't silently
+// dropped. `unstable_retry` is preferred (re-fetches Server Component data);
+// `reset` is kept on the type for forwards-compat.
+export type AdminDetailErrorProps = {
+  error: Error & { digest?: string };
+  reset: () => void;
+  unstable_retry: () => void;
+};
+
 // Per-detail-page error UI. Used by `app/admin/users/[id]/error.tsx` and
 // `app/admin/households/[id]/error.tsx` so a row-level failure surfaces
 // inside the admin shell without unmounting the nav.
@@ -15,9 +25,7 @@ export function AdminDetailError({
   unstable_retry,
   label,
   logTag,
-}: {
-  error: Error & { digest?: string };
-  unstable_retry: () => void;
+}: AdminDetailErrorProps & {
   label: string;
   logTag: string;
 }) {

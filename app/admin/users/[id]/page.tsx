@@ -11,9 +11,9 @@ import {
   AdminTable,
   DataGrid,
   DetailHeader,
-  PrimaryButton,
   Section,
 } from "@/app/admin/_components";
+import { PrimaryButton } from "@/app/_components/primary-button";
 import { db } from "@/lib/db";
 import {
   account,

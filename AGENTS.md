@@ -62,13 +62,20 @@ Every mutation MUST:
 
 ## Component layout
 
-- Admin shared components: `app/admin/_components/` (underscore = private folder, never routable). Import via the barrel: `import { AdminTable, Section, DataGrid, DetailHeader, PrimaryButton } from "@/app/admin/_components"`.
+- Admin shared components: `app/admin/_components/` (underscore = private folder, never routable). Import via the barrel: `import { AdminTable, Section, DataGrid, DetailHeader } from "@/app/admin/_components"`.
+- The barrel **excludes** `<AdminEmail>` — it's server-only (transitively imports `lib/db`) and re-exporting would leak `server-only` into client bundles via the error boundaries that import the barrel. Layout imports it directly from `./admin-email`.
+- `<PrimaryButton>` lives at `app/_components/primary-button.tsx` (NOT inside `admin/_components`) because login + signup forms also use it. Import: `import { PrimaryButton } from "@/app/_components/primary-button"`.
 - Co-locate single-use client components with the page that owns them (e.g. `app/admin/households/[id]/delete-household-form.tsx`).
 - `<AdminTable headers={[...]}>` for any tabular admin data — locks the outer markup so detail pages don't drift visually. Pass `null` in the headers array for unlabelled action columns.
 - `<Section title>` for grouped content blocks on detail pages.
 - `<DetailHeader>` for the title + back-link pattern shared across detail pages.
 - `<DataGrid rows={[{ label, value }]}>` for label/value pairs (identity cards).
 - `<PrimaryButton>` for the dark "submit" button style. Variants via `size="sm" | "md"`.
+
+## Audit context (`writeAudit`)
+
+- **Mutation actions**: resolve `net = await readNetworkContext()` BEFORE opening `db.transaction`, then pass `{ client: tx, net }` to `writeAudit`. The two-overload signature on `writeAudit` enforces this — `client` requires `net` at the type level so the lock window never includes a header read.
+- **View-page audits via `after()`**: just call `writeAudit(entry)` with no options. The fallback resolves network context internally; no transaction is open so the resolve is harmless.
 
 ## Tooling
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { signUp } from "@/lib/auth-client";
-import { PrimaryButton } from "@/app/admin/_components";
+import { PrimaryButton } from "@/app/_components/primary-button";
 
 export function SignupForm() {
   const router = useRouter();

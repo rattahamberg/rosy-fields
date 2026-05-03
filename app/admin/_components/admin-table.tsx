@@ -3,7 +3,7 @@
 //
 // `headers` accepts `null` for unlabelled action columns (e.g. a column of
 // "Remove" buttons). The cell renders empty so the layout reserves the
-// space without showing a label or an unused screen-reader string.
+// space without showing a label.
 
 export function AdminTable({
   headers,
@@ -18,7 +18,11 @@ export function AdminTable({
         <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
           <tr>
             {headers.map((h, i) => (
-              <th key={h ?? `__col-${i}`} className="px-4 py-2 font-medium">
+              // Always composite — guards against duplicate non-null headers.
+              <th
+                key={h != null ? `${h}-${i}` : `__col-${i}`}
+                className="px-4 py-2 font-medium"
+              >
                 {h}
               </th>
             ))}

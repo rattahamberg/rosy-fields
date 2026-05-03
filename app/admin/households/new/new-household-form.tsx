@@ -7,7 +7,7 @@ import {
   type FormState,
 } from "@/app/admin/households/actions";
 import { ADMIN_HOUSEHOLD_NAME_MAX } from "@/lib/admin/config";
-import { PrimaryButton } from "@/app/admin/_components";
+import { PrimaryButton } from "@/app/_components/primary-button";
 
 const INITIAL: FormState = { ok: false, error: "" };
 

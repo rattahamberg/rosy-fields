@@ -19,7 +19,8 @@ import {
   ADMIN_USER_PAGE_SIZE,
 } from "@/lib/admin/config";
 import { resolveSearch } from "@/lib/admin/search";
-import { AdminTable, PrimaryButton } from "@/app/admin/_components";
+import { AdminTable } from "@/app/admin/_components";
+import { PrimaryButton } from "@/app/_components/primary-button";
 import { db } from "@/lib/db";
 import {
   household,
@@ -98,41 +99,39 @@ export default async function AdminUsersPage({
 
   const whereExpr = conditions.length > 0 ? and(...conditions) : undefined;
 
+  // Extract the user-list query so its row type can be derived rather than
+  // hand-typed (the previous Promise.all empty-array placeholder was prone
+  // to drifting from the Drizzle inference).
+  const listUsersQuery = (where: SQL | undefined) =>
+    db
+      .select({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        emailVerified: user.emailVerified,
+        role: user.role,
+        createdAt: user.createdAt,
+        activeSessions: sql<number>`count(${session.id})::int`.as(
+          "active_sessions",
+        ),
+      })
+      .from(user)
+      .leftJoin(
+        session,
+        and(eq(session.userId, user.id), gt(session.expiresAt, sql`now()`)),
+      )
+      .where(where)
+      .groupBy(user.id)
+      .orderBy(desc(user.createdAt), desc(user.id))
+      .limit(ADMIN_USER_PAGE_SIZE + 1);
+
+  type UserListRow = Awaited<ReturnType<typeof listUsersQuery>>[number];
+
   // Main user list and the filter-label lookup are independent — fan out.
   const [rows, filterLabel] = await Promise.all([
     searchTooShort
-      ? Promise.resolve(
-          [] as Array<{
-            id: string;
-            email: string;
-            name: string;
-            emailVerified: boolean;
-            role: string;
-            createdAt: Date;
-            activeSessions: number;
-          }>,
-        )
-      : db
-          .select({
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            emailVerified: user.emailVerified,
-            role: user.role,
-            createdAt: user.createdAt,
-            activeSessions: sql<number>`count(${session.id})::int`.as(
-              "active_sessions",
-            ),
-          })
-          .from(user)
-          .leftJoin(
-            session,
-            and(eq(session.userId, user.id), gt(session.expiresAt, sql`now()`)),
-          )
-          .where(whereExpr)
-          .groupBy(user.id)
-          .orderBy(desc(user.createdAt), desc(user.id))
-          .limit(ADMIN_USER_PAGE_SIZE + 1),
+      ? Promise.resolve([] as UserListRow[])
+      : listUsersQuery(whereExpr),
     householdId
       ? db
           .select({ name: household.name })

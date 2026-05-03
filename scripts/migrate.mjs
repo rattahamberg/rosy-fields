@@ -79,20 +79,19 @@ try {
   // already-applied entries. Useful after a deliberate file edit (CRLF fix,
   // adding IF NOT EXISTS guards, etc.) that shouldn't trigger drift halt.
   if (rehash) {
-    let rehashed = 0;
-    const skipped = [];
-    for (const entry of entries) {
-      if (!applied.has(entry.tag)) {
-        skipped.push(entry.tag);
-        continue;
-      }
+    const skipped = entries
+      .filter((e) => !applied.has(e.tag))
+      .map((e) => e.tag);
+    const toRehash = entries.filter((e) => applied.has(e.tag));
+
+    for (const entry of toRehash) {
       const current = hashFile(join("drizzle", `${entry.tag}.sql`));
       await pool.query(
         `UPDATE "__migrations" SET sql_hash = $1 WHERE tag = $2`,
         [current, entry.tag],
       );
-      rehashed++;
     }
+
     if (skipped.length > 0) {
       console.warn(
         `WARN: ${skipped.length} journal entry/entries are NOT in __migrations and were not rehashed:`,
@@ -102,7 +101,7 @@ try {
         "Run without --rehash (or --bootstrap on a fresh DB) to apply or mark them.",
       );
     }
-    console.log(`Rehashed ${rehashed} migration(s).`);
+    console.log(`Rehashed ${toRehash.length} migration(s).`);
     process.exit(0);
   }
 
