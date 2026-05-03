@@ -34,6 +34,10 @@ concurrency:
   group: migrate-prod
   cancel-in-progress: false
 
+env:
+  # Opt into Node 24 for JS actions ahead of the June 2026 default flip.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   migrate:
     name: Apply pending migrations
