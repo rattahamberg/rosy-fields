@@ -7,10 +7,13 @@ import { verifyAdmin } from "@/lib/admin/dal";
 import { writeAudit } from "@/lib/admin/audit";
 import { resolveUserEmails } from "@/lib/admin/queries";
 import { ADMIN_HOUSEHOLD_PICKER_LIMIT } from "@/lib/admin/config";
-import { Section } from "@/app/admin/_components/section";
-import { DataGrid } from "@/app/admin/_components/data-grid";
-import { DetailHeader } from "@/app/admin/_components/detail-header";
-import { AdminTable } from "@/app/admin/_components/admin-table";
+import {
+  AdminTable,
+  DataGrid,
+  DetailHeader,
+  PrimaryButton,
+  Section,
+} from "@/app/admin/_components";
 import { db } from "@/lib/db";
 import {
   account,
@@ -154,14 +157,17 @@ export default async function AdminUserDetailPage({
       <Section title="Identity">
         <DataGrid
           rows={[
-            ["ID", <code key="id">{target.id}</code>],
-            ["Email", target.email],
-            ["Email verified", target.emailVerified ? "Yes" : "No"],
-            ["Name", target.name],
-            ["Role", target.role],
-            ["Image URL", target.image ?? "—"],
-            ["Created", target.createdAt.toISOString()],
-            ["Updated", target.updatedAt.toISOString()],
+            { label: "ID", value: <code>{target.id}</code> },
+            { label: "Email", value: target.email },
+            {
+              label: "Email verified",
+              value: target.emailVerified ? "Yes" : "No",
+            },
+            { label: "Name", value: target.name },
+            { label: "Role", value: target.role },
+            { label: "Image URL", value: target.image ?? "—" },
+            { label: "Created", value: target.createdAt.toISOString() },
+            { label: "Updated", value: target.updatedAt.toISOString() },
           ]}
         />
       </Section>
@@ -240,12 +246,7 @@ export default async function AdminUserDetailPage({
                 ))}
               </select>
             </label>
-            <button
-              type="submit"
-              className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900"
-            >
-              Add
-            </button>
+            <PrimaryButton size="sm">Add</PrimaryButton>
           </form>
         ) : (
           <p className="mt-4 text-xs text-zinc-500">

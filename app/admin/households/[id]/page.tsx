@@ -8,9 +8,12 @@ import {
   ADMIN_ERROR_DISPLAY_MAX,
   ADMIN_USER_PICKER_LIMIT,
 } from "@/lib/admin/config";
-import { Section } from "@/app/admin/_components/section";
-import { DetailHeader } from "@/app/admin/_components/detail-header";
-import { AdminTable } from "@/app/admin/_components/admin-table";
+import {
+  AdminTable,
+  DetailHeader,
+  PrimaryButton,
+  Section,
+} from "@/app/admin/_components";
 import { db } from "@/lib/db";
 import { household, householdMember, user } from "@/lib/db/schema";
 import { addMember, removeMember } from "@/app/admin/households/actions";
@@ -190,12 +193,7 @@ export default async function HouseholdDetailPage({
                 ))}
               </select>
             </label>
-            <button
-              type="submit"
-              className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900"
-            >
-              Add
-            </button>
+            <PrimaryButton size="sm">Add</PrimaryButton>
             {candidates.length === ADMIN_USER_PICKER_LIMIT && (
               <p className="basis-full text-xs text-zinc-500">
                 Showing the {ADMIN_USER_PICKER_LIMIT} most-recent users not

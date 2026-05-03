@@ -46,23 +46,22 @@ async function main() {
           `[dry-run] Would promote ${email} (id=${match.id}) from "${match.role}" to "admin".`,
         );
       }
-      return;
+    } else {
+      const result = await db
+        .update(user)
+        .set({ role: "admin" })
+        .where(eq(user.email, email))
+        .returning({ id: user.id, email: user.email, role: user.role });
+
+      if (result.length === 0) {
+        console.error(
+          `No user with email ${email}. Sign up at /signup first, then re-run.`,
+        );
+        process.exit(1);
+      }
+
+      console.log(`Granted admin: ${JSON.stringify(result[0])}`);
     }
-
-    const result = await db
-      .update(user)
-      .set({ role: "admin" })
-      .where(eq(user.email, email))
-      .returning({ id: user.id, email: user.email, role: user.role });
-
-    if (result.length === 0) {
-      console.error(
-        `No user with email ${email}. Sign up at /signup first, then re-run.`,
-      );
-      process.exit(1);
-    }
-
-    console.log(`Granted admin: ${JSON.stringify(result[0])}`);
   } finally {
     await pool.end();
   }

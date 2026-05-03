@@ -1,13 +1,15 @@
 "use client";
 
+const SHOW_DIGEST = process.env.NODE_ENV !== "production";
+
 // Catches errors thrown during root layout rendering. Must include its own
 // <html> and <body> because the root layout did not run.
 export default function GlobalError({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
   return (
     <html lang="en">
@@ -27,7 +29,7 @@ export default function GlobalError({
             </h1>
             <p style={{ marginTop: 12, color: "#52525b" }}>
               The app crashed at a low level.
-              {error.digest ? (
+              {SHOW_DIGEST && error.digest ? (
                 <>
                   {" "}
                   Reference: <code>{error.digest}</code>
@@ -36,7 +38,7 @@ export default function GlobalError({
             </p>
             <button
               type="button"
-              onClick={reset}
+              onClick={() => unstable_retry()}
               style={{
                 marginTop: 16,
                 padding: "8px 12px",

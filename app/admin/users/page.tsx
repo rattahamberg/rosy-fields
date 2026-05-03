@@ -18,7 +18,8 @@ import {
   ADMIN_SEARCH_MIN_LENGTH,
   ADMIN_USER_PAGE_SIZE,
 } from "@/lib/admin/config";
-import { AdminTable } from "@/app/admin/_components/admin-table";
+import { evalSearch } from "@/lib/admin/search";
+import { AdminTable } from "@/app/admin/_components";
 import { db } from "@/lib/db";
 import {
   household,
@@ -67,11 +68,8 @@ export default async function AdminUsersPage({
   await verifyAdmin();
 
   const { q, cursor, householdId } = await searchParams;
-  const trimmedQ = q?.trim() ?? "";
   const cursorParsed = parseCursor(cursor);
-
-  const searchActive = trimmedQ.length >= ADMIN_SEARCH_MIN_LENGTH;
-  const searchTooShort = trimmedQ.length > 0 && !searchActive;
+  const { trimmedQ, searchActive, searchTooShort } = evalSearch(q);
 
   const conditions: SQL[] = [];
   if (searchActive) {

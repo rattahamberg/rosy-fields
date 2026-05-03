@@ -6,7 +6,8 @@ import {
   ADMIN_HOUSEHOLD_LIST_LIMIT,
   ADMIN_SEARCH_MIN_LENGTH,
 } from "@/lib/admin/config";
-import { AdminTable } from "@/app/admin/_components/admin-table";
+import { evalSearch } from "@/lib/admin/search";
+import { AdminTable } from "@/app/admin/_components";
 import { db } from "@/lib/db";
 import { household, householdMember, user } from "@/lib/db/schema";
 
@@ -24,9 +25,7 @@ export default async function AdminHouseholdsPage({
   await verifyAdmin();
 
   const { q } = await searchParams;
-  const trimmedQ = q?.trim() ?? "";
-  const searchActive = trimmedQ.length >= ADMIN_SEARCH_MIN_LENGTH;
-  const searchTooShort = trimmedQ.length > 0 && !searchActive;
+  const { trimmedQ, searchActive, searchTooShort } = evalSearch(q);
 
   const rows = searchTooShort
     ? []

@@ -1,32 +1,24 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState } from "react";
 import Link from "next/link";
 import {
   createHouseholdAction,
   type FormState,
 } from "@/app/admin/households/actions";
 import { ADMIN_HOUSEHOLD_NAME_MAX } from "@/lib/admin/config";
+import { PrimaryButton } from "@/app/admin/_components";
 
 const INITIAL: FormState = { ok: false, error: "" };
 
 export function NewHouseholdForm() {
+  // The action calls `redirect(...)` itself on success — control never
+  // returns to the client in that case, so there's no "ok" branch to handle.
+  // `state` only flips when validation fails.
   const [state, formAction, pending] = useActionState(
     createHouseholdAction,
     INITIAL,
   );
-  const router = useRouter();
-  const navigated = useRef(false);
-
-  // `useActionState` returns a fresh `state` object reference each render;
-  // the latch prevents the redirect from re-firing on subsequent renders.
-  useEffect(() => {
-    if (state.ok && state.id && !navigated.current) {
-      navigated.current = true;
-      router.push(`/admin/households/${state.id}`);
-    }
-  }, [state, router]);
 
   return (
     <form action={formAction} className="space-y-4">
@@ -54,13 +46,9 @@ export function NewHouseholdForm() {
       ) : null}
 
       <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-        >
+        <PrimaryButton disabled={pending}>
           {pending ? "Creating…" : "Create"}
-        </button>
+        </PrimaryButton>
         <Link
           href="/admin/households"
           className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"

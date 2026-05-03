@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import { isSafePath } from "@/lib/safe-redirect";
 
 // Optimistic auth gate: checks for session-cookie *presence* only.
 // This is a UX/perf hint, NOT the authorization boundary. The real check
@@ -11,13 +12,10 @@ const PROTECTED_PREFIXES = ["/dashboard", "/admin"];
 function isProtectedPath(pathname: string): boolean {
   return (
     pathname === "/" ||
-    PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+    PROTECTED_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(`${p}/`),
+    )
   );
-}
-
-function isSafeNext(target: string): boolean {
-  // Same-origin path only. Blocks `//evil.com` and absolute URLs.
-  return target.startsWith("/") && !target.startsWith("//");
 }
 
 export function proxy(request: NextRequest) {
@@ -27,7 +25,7 @@ export function proxy(request: NextRequest) {
   if (sessionCookie) {
     if (pathname === "/" || pathname === "/login" || pathname === "/signup") {
       const next = request.nextUrl.searchParams.get("next");
-      const dest = next && isSafeNext(next) ? next : "/dashboard";
+      const dest = isSafePath(next) ? next! : "/dashboard";
       return NextResponse.redirect(new URL(dest, request.url));
     }
     return NextResponse.next();

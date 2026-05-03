@@ -15,7 +15,7 @@ import {
 
 // ---------- shared helpers ----------
 
-export type FormState = { ok: true; id?: string } | { ok: false; error: string };
+export type FormState = { ok: true } | { ok: false; error: string };
 
 function normalizeName(raw: FormDataEntryValue | null): string | null {
   if (typeof raw !== "string") return null;
@@ -78,7 +78,9 @@ export async function createHouseholdAction(
   });
 
   revalidatePath("/admin/households");
-  return { ok: true, id };
+  // Server-side redirect keeps the action atomic — no client-side latch
+  // needed in NewHouseholdForm. `redirect` throws a NEXT_REDIRECT signal.
+  redirect(`/admin/households/${id}`);
 }
 
 // ---------- useActionState-style: renameHousehold ----------
@@ -98,15 +100,24 @@ export async function renameHouseholdAction(
     };
   }
 
-  let updated = false;
-  await db.transaction(async (tx) => {
-    const result = await tx
+  const result = await db.transaction(async (tx) => {
+    // Lock the row and capture the old name before mutating, so the audit
+    // row contains both old and new values.
+    const [existing] = await tx
+      .select({ id: household.id, name: household.name })
+      .from(household)
+      .where(eq(household.id, householdId))
+      .for("update")
+      .limit(1);
+    if (!existing) return { found: false as const };
+    if (existing.name === name) {
+      // No change — skip the UPDATE and the audit row.
+      return { found: true as const, changed: false as const };
+    }
+    await tx
       .update(household)
       .set({ name })
-      .where(eq(household.id, householdId))
-      .returning({ id: household.id });
-    if (result.length === 0) return;
-    updated = true;
+      .where(eq(household.id, householdId));
     await writeAudit(
       {
         actorUserId: session.user.id,
@@ -114,20 +125,26 @@ export async function renameHouseholdAction(
         action: "household.rename",
         targetType: "household",
         targetId: householdId,
-        metadata: { name },
+        metadata: { oldName: existing.name, newName: name },
       },
       tx,
     );
+    return { found: true as const, changed: true as const };
   });
 
-  if (!updated) return { ok: false, error: "Household not found" };
+  if (!result.found) return { ok: false, error: "Household not found" };
 
   revalidatePath(`/admin/households/${householdId}`);
   revalidatePath("/admin/households");
-  return { ok: true, id: householdId };
+  return { ok: true };
 }
 
 // ---------- redirect-style mutations ----------
+
+type DeleteOutcome =
+  | { status: "ok" }
+  | { status: "notFound" }
+  | { status: "confirmFailed" };
 
 export async function deleteHousehold(formData: FormData): Promise<void> {
   const session = await verifyAdmin();
@@ -135,30 +152,20 @@ export async function deleteHousehold(formData: FormData): Promise<void> {
   const confirmName = String(formData.get("confirmName") ?? "").trim();
   if (!householdId) return redirect("/admin/households");
 
-  // Lookup, name-check, and delete in one transaction with row lock — closes
+  // SELECT-FOR-UPDATE, name-check, and DELETE in one transaction — closes
   // the TOCTOU window where a concurrent rename could let an admin delete
-  // the wrong household.
-  let deletedName: string | null = null;
-  let confirmFailed = false;
-  let notFoundFlag = false;
-
-  await db.transaction(async (tx) => {
+  // the wrong household. The transaction returns a discriminated union; the
+  // caller dispatches on it after the txn closes.
+  const outcome: DeleteOutcome = await db.transaction(async (tx) => {
     const [existing] = await tx
       .select({ id: household.id, name: household.name })
       .from(household)
       .where(eq(household.id, householdId))
       .for("update")
       .limit(1);
-    if (!existing) {
-      notFoundFlag = true;
-      return;
-    }
-    if (confirmName !== existing.name) {
-      confirmFailed = true;
-      return;
-    }
+    if (!existing) return { status: "notFound" };
+    if (confirmName !== existing.name) return { status: "confirmFailed" };
     await tx.delete(household).where(eq(household.id, householdId));
-    deletedName = existing.name;
     await writeAudit(
       {
         actorUserId: session.user.id,
@@ -170,23 +177,21 @@ export async function deleteHousehold(formData: FormData): Promise<void> {
       },
       tx,
     );
+    return { status: "ok" };
   });
 
-  if (notFoundFlag) {
+  if (outcome.status === "notFound") {
     return redirect(
       `/admin/households?error=${encodeURIComponent("Household not found")}`,
     );
   }
-  if (confirmFailed) {
+  if (outcome.status === "confirmFailed") {
     return redirect(
       `/admin/households/${householdId}?error=${encodeURIComponent(
         "Confirmation name did not match",
       )}`,
     );
   }
-  // Mark deletedName as used (lint defense; it's intentionally captured for
-  // the audit metadata above).
-  void deletedName;
 
   revalidatePath("/admin/households");
   return redirect("/admin/households");

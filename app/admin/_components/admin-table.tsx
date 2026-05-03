@@ -1,5 +1,9 @@
 // Shell for admin data tables — locks the outer wrapper, header style, and
 // row divider so individual pages don't drift visually.
+//
+// `headers` accepts `null` for unlabelled action columns (e.g. a column of
+// "Remove" buttons). The cell renders empty so the layout reserves the
+// space without showing a label or an unused screen-reader string.
 
 export function AdminTable({
   headers,

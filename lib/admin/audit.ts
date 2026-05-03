@@ -1,7 +1,8 @@
 import "server-only";
 
 import { headers } from "next/headers";
-import type { NeonDatabase } from "drizzle-orm/neon-serverless";
+import type { PgDatabase } from "drizzle-orm/pg-core";
+import type { NeonQueryResultHKT } from "drizzle-orm/neon-serverless";
 import { db } from "@/lib/db";
 import { adminAuditLog } from "@/lib/db/schema";
 
@@ -32,9 +33,14 @@ async function readNetworkContext(): Promise<{
   return { ipAddress, userAgent: h.get("user-agent") ?? null };
 }
 
-// Drizzle transaction handle — accepts the global `db` or a tx scope so
-// callers can atomically commit a mutation and its audit row together.
-type DrizzleClient = NeonDatabase<Record<string, unknown>> | typeof db;
+// Common base type for both the global `db` and a transaction handle from
+// `db.transaction(async (tx) => ...)`. Both extend PgDatabase, so widening to
+// the base lets callers atomically commit a mutation and its audit row
+// together.
+type DrizzleClient = PgDatabase<
+  NeonQueryResultHKT,
+  Record<string, unknown>
+>;
 
 export async function writeAudit(
   entry: AuditEntry,

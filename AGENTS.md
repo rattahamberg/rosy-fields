@@ -62,11 +62,13 @@ Every mutation MUST:
 
 ## Component layout
 
-- Admin shared components: `app/admin/_components/` (underscore = private folder, never routable).
+- Admin shared components: `app/admin/_components/` (underscore = private folder, never routable). Import via the barrel: `import { AdminTable, Section, DataGrid, DetailHeader, PrimaryButton } from "@/app/admin/_components"`.
 - Co-locate single-use client components with the page that owns them (e.g. `app/admin/households/[id]/delete-household-form.tsx`).
-- `<AdminTable headers={[...]}>` for any tabular admin data — locks the outer markup so detail pages don't drift visually.
+- `<AdminTable headers={[...]}>` for any tabular admin data — locks the outer markup so detail pages don't drift visually. Pass `null` in the headers array for unlabelled action columns.
 - `<Section title>` for grouped content blocks on detail pages.
 - `<DetailHeader>` for the title + back-link pattern shared across detail pages.
+- `<DataGrid rows={[{ label, value }]}>` for label/value pairs (identity cards).
+- `<PrimaryButton>` for the dark "submit" button style. Variants via `size="sm" | "md"`.
 
 ## Tooling
 

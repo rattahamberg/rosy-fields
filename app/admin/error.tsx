@@ -2,15 +2,18 @@
 
 import { useEffect } from "react";
 
+const SHOW_DIGEST = process.env.NODE_ENV !== "production";
+
+// `unstable_retry` (Next 16.2.0+) re-fetches and re-renders the boundary's
+// children — preferred over `reset`, which only re-renders without re-fetching.
 export default function AdminError({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
   useEffect(() => {
-    // Surface to whatever's wired up — for now just the browser console.
     console.error("admin route error", error);
   }, [error]);
 
@@ -20,7 +23,7 @@ export default function AdminError({
         <h1 className="text-xl font-semibold">Something went wrong</h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           An admin operation failed.
-          {error.digest ? (
+          {SHOW_DIGEST && error.digest ? (
             <>
               {" "}
               Reference: <code className="text-xs">{error.digest}</code>
@@ -29,7 +32,7 @@ export default function AdminError({
         </p>
         <button
           type="button"
-          onClick={reset}
+          onClick={() => unstable_retry()}
           className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900"
         >
           Try again

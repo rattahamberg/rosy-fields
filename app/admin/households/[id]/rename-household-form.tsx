@@ -6,6 +6,7 @@ import {
   type FormState,
 } from "@/app/admin/households/actions";
 import { ADMIN_HOUSEHOLD_NAME_MAX } from "@/lib/admin/config";
+import { PrimaryButton } from "@/app/admin/_components";
 
 const INITIAL: FormState = { ok: false, error: "" };
 
@@ -38,13 +39,9 @@ export function RenameHouseholdForm({
           className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
         />
       </label>
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-      >
+      <PrimaryButton size="sm" disabled={pending}>
         {pending ? "Saving…" : "Save"}
-      </button>
+      </PrimaryButton>
       {!state.ok && state.error ? (
         <p
           role="alert"

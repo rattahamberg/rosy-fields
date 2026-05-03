@@ -1,5 +1,11 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV === "development";
+
+// `unsafe-eval` is required by React's dev tooling but NOT in production —
+// per Next 16 CSP guide. Gate it on the env so prod gets the stricter policy.
+const SCRIPT_SRC = `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`;
+
 const COMMON_HEADERS = [
   {
     key: "Strict-Transport-Security",
@@ -15,18 +21,20 @@ const COMMON_HEADERS = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=()",
   },
-  // Conservative CSP. Permits inline styles (Tailwind) and Next.js's required
-  // inline scripts via 'self' + 'unsafe-inline'. Tighten with a nonce-based
-  // policy if you start serving sensitive PII or accept third-party content.
+  // Conservative CSP. `'unsafe-inline'` is permitted for Next.js's required
+  // inline bootstrap scripts; tighten with a nonce-based policy via proxy if
+  // you start serving sensitive PII or accept third-party content. The
+  // browser does not need to talk to Neon directly — Neon WebSocket is
+  // server-side only — so connect-src stays at 'self'.
   {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      SCRIPT_SRC,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' wss: https:",
+      "connect-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -48,6 +56,7 @@ const nextConfig: NextConfig = {
       {
         // Admin pages render per-user data. Force `no-store` so no upstream
         // proxy / CDN can ever cache and serve another admin's view.
+        // Different keys merge additively with the global rule above.
         source: "/admin/:path*",
         headers: [
           {

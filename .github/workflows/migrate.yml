@@ -14,11 +14,13 @@ name: migrate
 #                            push" for production in that case so this is
 #                            the only deploy path.
 #
-# One-time bootstrap:
-#   Trigger the workflow from the Actions tab → "Run workflow" → set
-#   `bootstrap` to `true`. This marks every migration in drizzle/meta/_journal.json
-#   as already applied without executing it (the schema was created out-of-band
-#   before CI existed). After that, leave `bootstrap` blank for normal runs.
+# Manual modes (workflow_dispatch only):
+#   bootstrap=true  - mark every journal entry as applied without running it
+#                     (first-time setup on a DB whose schema was applied
+#                     out-of-band)
+#   rehash=true     - rewrite stored hashes to match current file content
+#                     (use after a deliberate hash-affecting edit such as
+#                     adding IF NOT EXISTS guards or fixing CRLF↔LF)
 
 on:
   push:
@@ -27,6 +29,10 @@ on:
     inputs:
       bootstrap:
         description: "Mark all journal entries as applied without running them (first-time setup)"
+        type: boolean
+        default: false
+      rehash:
+        description: "Rewrite stored sql_hash values to match current file content (no SQL runs)"
         type: boolean
         default: false
 
@@ -59,6 +65,8 @@ jobs:
         run: |
           if [ "${{ inputs.bootstrap }}" = "true" ]; then
             node scripts/migrate.mjs --bootstrap
+          elif [ "${{ inputs.rehash }}" = "true" ]; then
+            node scripts/migrate.mjs --rehash
           else
             node scripts/migrate.mjs
           fi
@@ -68,8 +76,8 @@ jobs:
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Skip on bootstrap runs — bootstrap is schema-only.
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrap == false) }}
+    # Skip on bootstrap/rehash runs — those are schema-only.
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.bootstrap == false && inputs.rehash == false) }}
     steps:
       - name: Hit Vercel deploy hook
         env:

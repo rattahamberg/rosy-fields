@@ -9,7 +9,8 @@
     "lint": "eslint",
     "grant-admin": "tsx --env-file=.env.local scripts/grant-admin.ts",
     "migrate": "node --env-file=.env.local scripts/migrate.mjs",
-    "migrate:bootstrap": "node --env-file=.env.local scripts/migrate.mjs --bootstrap"
+    "migrate:bootstrap": "node --env-file=.env.local scripts/migrate.mjs --bootstrap",
+    "migrate:rehash": "node --env-file=.env.local scripts/migrate.mjs --rehash"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
