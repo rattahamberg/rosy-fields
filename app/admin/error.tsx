@@ -6,6 +6,7 @@ const SHOW_DIGEST = process.env.NODE_ENV !== "production";
 
 // `unstable_retry` (Next 16.2.0+) re-fetches and re-renders the boundary's
 // children — preferred over `reset`, which only re-renders without re-fetching.
+// The `unstable_` prefix is canary-API; expect it to become `retry` once stable.
 export default function AdminError({
   error,
   unstable_retry,

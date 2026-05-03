@@ -18,8 +18,8 @@ import {
   ADMIN_SEARCH_MIN_LENGTH,
   ADMIN_USER_PAGE_SIZE,
 } from "@/lib/admin/config";
-import { evalSearch } from "@/lib/admin/search";
-import { AdminTable } from "@/app/admin/_components";
+import { resolveSearch } from "@/lib/admin/search";
+import { AdminTable, PrimaryButton } from "@/app/admin/_components";
 import { db } from "@/lib/db";
 import {
   household,
@@ -69,7 +69,7 @@ export default async function AdminUsersPage({
 
   const { q, cursor, householdId } = await searchParams;
   const cursorParsed = parseCursor(cursor);
-  const { trimmedQ, searchActive, searchTooShort } = evalSearch(q);
+  const { trimmedQ, searchActive, searchTooShort } = resolveSearch(q);
 
   const conditions: SQL[] = [];
   if (searchActive) {
@@ -98,29 +98,50 @@ export default async function AdminUsersPage({
 
   const whereExpr = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const rows = searchTooShort
-    ? []
-    : await db
-        .select({
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          emailVerified: user.emailVerified,
-          role: user.role,
-          createdAt: user.createdAt,
-          activeSessions: sql<number>`count(${session.id})::int`.as(
-            "active_sessions",
-          ),
-        })
-        .from(user)
-        .leftJoin(
-          session,
-          and(eq(session.userId, user.id), gt(session.expiresAt, sql`now()`)),
+  // Main user list and the filter-label lookup are independent — fan out.
+  const [rows, filterLabel] = await Promise.all([
+    searchTooShort
+      ? Promise.resolve(
+          [] as Array<{
+            id: string;
+            email: string;
+            name: string;
+            emailVerified: boolean;
+            role: string;
+            createdAt: Date;
+            activeSessions: number;
+          }>,
         )
-        .where(whereExpr)
-        .groupBy(user.id)
-        .orderBy(desc(user.createdAt), desc(user.id))
-        .limit(ADMIN_USER_PAGE_SIZE + 1);
+      : db
+          .select({
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            emailVerified: user.emailVerified,
+            role: user.role,
+            createdAt: user.createdAt,
+            activeSessions: sql<number>`count(${session.id})::int`.as(
+              "active_sessions",
+            ),
+          })
+          .from(user)
+          .leftJoin(
+            session,
+            and(eq(session.userId, user.id), gt(session.expiresAt, sql`now()`)),
+          )
+          .where(whereExpr)
+          .groupBy(user.id)
+          .orderBy(desc(user.createdAt), desc(user.id))
+          .limit(ADMIN_USER_PAGE_SIZE + 1),
+    householdId
+      ? db
+          .select({ name: household.name })
+          .from(household)
+          .where(eq(household.id, householdId))
+          .limit(1)
+          .then((r) => r[0]?.name ?? "Unknown household")
+      : Promise.resolve(null as string | null),
+  ]);
 
   const hasMore = rows.length > ADMIN_USER_PAGE_SIZE;
   const pageRows = hasMore ? rows.slice(0, ADMIN_USER_PAGE_SIZE) : rows;
@@ -128,7 +149,7 @@ export default async function AdminUsersPage({
   const nextCursor =
     hasMore && lastRow ? buildCursor(lastRow.createdAt, lastRow.id) : null;
 
-  // Single batched query for household memberships, keyed by user id.
+  // Memberships depends on pageRows so it stays in a second stage.
   const membershipsByUser = new Map<
     string,
     { householdId: string; name: string }[]
@@ -153,17 +174,6 @@ export default async function AdminUsersPage({
       list.push({ householdId: m.householdId, name: m.name });
       membershipsByUser.set(m.userId, list);
     }
-  }
-
-  // Look up the filter label if a householdId is selected.
-  let filterLabel: string | null = null;
-  if (householdId) {
-    const [h] = await db
-      .select({ name: household.name })
-      .from(household)
-      .where(eq(household.id, householdId))
-      .limit(1);
-    filterLabel = h?.name ?? "Unknown household";
   }
 
   const baseQuery = new URLSearchParams();
@@ -195,12 +205,7 @@ export default async function AdminUsersPage({
         {householdId ? (
           <input type="hidden" name="householdId" value={householdId} />
         ) : null}
-        <button
-          type="submit"
-          className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900"
-        >
-          Search
-        </button>
+        <PrimaryButton>Search</PrimaryButton>
         {(trimmedQ || householdId) && (
           <Link
             href="/admin/users"

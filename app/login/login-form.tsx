@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { signIn } from "@/lib/auth-client";
 import { safePath } from "@/lib/safe-redirect";
+import { PrimaryButton } from "@/app/admin/_components";
 
 export function LoginForm() {
   const router = useRouter();
@@ -69,13 +70,12 @@ export function LoginForm() {
             />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            type="submit"
+          <PrimaryButton
             disabled={pending}
-            className="w-full rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+            className="w-full font-medium"
           >
             {pending ? "Signing in…" : "Sign in"}
-          </button>
+          </PrimaryButton>
         </form>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           No account?{" "}

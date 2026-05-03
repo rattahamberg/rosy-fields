@@ -37,6 +37,7 @@ npm run grant-admin -- you@example.com --dry-run
 | `npm run lint`                  | ESLint                                                                  |
 | `npm run migrate`               | Apply pending migrations against `DATABASE_URL_UNPOOLED`                |
 | `npm run migrate:bootstrap`     | Mark all migrations as applied without running them (one-time only)     |
+| `npm run migrate:rehash`        | Rewrite stored sql_hash values after a deliberate file edit             |
 | `npm run grant-admin -- <email>`| Promote a user to `role = 'admin'`                                      |
 
 ## Environment

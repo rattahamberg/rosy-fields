@@ -75,4 +75,10 @@ Every mutation MUST:
 - `npm run grant-admin -- <email> [--dry-run]` to promote a user to admin.
 - `npm run migrate` to apply pending migrations.
 - `npm run migrate:bootstrap` only on a brand-new database where the schema was applied out-of-band.
+- `npm run migrate:rehash` after a deliberate hash-affecting edit (e.g. CRLF normalization, adding IF NOT EXISTS guards). Updates the stored sql_hash in `__migrations` without running anything. Same flag is available in CI via the workflow_dispatch input `rehash`.
 - `scripts/setup-cron.sql` documents optional pg_cron retention/purge jobs (apply manually after enabling pg_cron in the Neon console).
+
+## Error boundaries
+
+- `app/admin/error.tsx`, `app/dashboard/error.tsx`, and `app/global-error.tsx` use `unstable_retry` (Next 16.2.0+, expect rename to `retry` later). They re-fetch and re-render the boundary's children rather than just re-rendering with stale data.
+- Per-detail-page errors (`app/admin/users/[id]/error.tsx`, `app/admin/households/[id]/error.tsx`) wrap the shared `<AdminDetailError label logTag>` so a row-level failure doesn't unmount the admin shell.

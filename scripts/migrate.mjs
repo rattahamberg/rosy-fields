@@ -80,14 +80,27 @@ try {
   // adding IF NOT EXISTS guards, etc.) that shouldn't trigger drift halt.
   if (rehash) {
     let rehashed = 0;
+    const skipped = [];
     for (const entry of entries) {
-      if (!applied.has(entry.tag)) continue;
+      if (!applied.has(entry.tag)) {
+        skipped.push(entry.tag);
+        continue;
+      }
       const current = hashFile(join("drizzle", `${entry.tag}.sql`));
       await pool.query(
         `UPDATE "__migrations" SET sql_hash = $1 WHERE tag = $2`,
         [current, entry.tag],
       );
       rehashed++;
+    }
+    if (skipped.length > 0) {
+      console.warn(
+        `WARN: ${skipped.length} journal entry/entries are NOT in __migrations and were not rehashed:`,
+      );
+      for (const tag of skipped) console.warn(`  - ${tag}`);
+      console.warn(
+        "Run without --rehash (or --bootstrap on a fresh DB) to apply or mark them.",
+      );
     }
     console.log(`Rehashed ${rehashed} migration(s).`);
     process.exit(0);

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { verifyAdmin } from "@/lib/admin/dal";
+import { AdminEmail } from "@/app/admin/_components/admin-email";
 
 export const metadata: Metadata = {
   title: {
@@ -15,12 +15,11 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Layout itself is sync — auth happens in the Suspense-wrapped header.
-  // This unblocks loading.tsx fallbacks for child routes (per Next 16 docs:
+  // Layout itself is sync — the header email streams in via Suspense so
+  // loading.tsx fallbacks for child routes can fire (per Next 16 docs:
   // "If the layout accesses uncached or runtime data… loading.js will not
-  // show a fallback for it"). Each page calls verifyAdmin() itself, so
-  // gating only happens server-side at the page boundary; the layout's
-  // verifyAdmin is only used to render the email in the header.
+  // show a fallback for it"). Each page calls verifyAdmin() itself; this
+  // layout only decorates the shell.
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
@@ -43,7 +42,7 @@ export default function AdminLayout({
             </Link>
           </div>
           <div className="flex items-center gap-4 text-xs text-zinc-500 dark:text-zinc-400">
-            <Suspense fallback={<span className="text-zinc-400">…</span>}>
+            <Suspense fallback={<span className="text-zinc-500">…</span>}>
               <AdminEmail />
             </Suspense>
             <Link
@@ -60,9 +59,4 @@ export default function AdminLayout({
       </main>
     </div>
   );
-}
-
-async function AdminEmail() {
-  const session = await verifyAdmin();
-  return <span>{session.user.email}</span>;
 }

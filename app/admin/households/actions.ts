@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { verifyAdmin } from "@/lib/admin/dal";
-import { writeAudit } from "@/lib/admin/audit";
+import { readNetworkContext, writeAudit } from "@/lib/admin/audit";
 import { db } from "@/lib/db";
 import { household, householdMember } from "@/lib/db/schema";
 import { safePath } from "@/lib/safe-redirect";
@@ -57,6 +57,9 @@ export async function createHouseholdAction(
     };
   }
 
+  // Resolve network context before opening the transaction so headers()
+  // doesn't yield mid-lock-window.
+  const net = await readNetworkContext();
   const id = crypto.randomUUID();
   await db.transaction(async (tx) => {
     await tx.insert(household).values({
@@ -73,7 +76,7 @@ export async function createHouseholdAction(
         targetId: id,
         metadata: { name },
       },
-      tx,
+      { client: tx, net },
     );
   });
 
@@ -100,6 +103,7 @@ export async function renameHouseholdAction(
     };
   }
 
+  const net = await readNetworkContext();
   const result = await db.transaction(async (tx) => {
     // Lock the row and capture the old name before mutating, so the audit
     // row contains both old and new values.
@@ -127,7 +131,7 @@ export async function renameHouseholdAction(
         targetId: householdId,
         metadata: { oldName: existing.name, newName: name },
       },
-      tx,
+      { client: tx, net },
     );
     return { found: true as const, changed: true as const };
   });
@@ -152,6 +156,8 @@ export async function deleteHousehold(formData: FormData): Promise<void> {
   const confirmName = String(formData.get("confirmName") ?? "").trim();
   if (!householdId) return redirect("/admin/households");
 
+  const net = await readNetworkContext();
+
   // SELECT-FOR-UPDATE, name-check, and DELETE in one transaction — closes
   // the TOCTOU window where a concurrent rename could let an admin delete
   // the wrong household. The transaction returns a discriminated union; the
@@ -175,7 +181,7 @@ export async function deleteHousehold(formData: FormData): Promise<void> {
         targetId: householdId,
         metadata: { name: existing.name },
       },
-      tx,
+      { client: tx, net },
     );
     return { status: "ok" };
   });
@@ -207,6 +213,8 @@ export async function addMember(formData: FormData): Promise<void> {
   );
   if (!householdId || !userId) return redirect(redirectTo);
 
+  const net = await readNetworkContext();
+
   // No SELECT pre-checks — relies on FK constraints. Eliminates TOCTOU race
   // where a household or user is deleted between the check and the insert.
   try {
@@ -227,7 +235,7 @@ export async function addMember(formData: FormData): Promise<void> {
           targetType: "household_member",
           targetId: `${householdId}:${userId}`,
         },
-        tx,
+        { client: tx, net },
       );
     });
   } catch (err) {
@@ -256,6 +264,8 @@ export async function removeMember(formData: FormData): Promise<void> {
   );
   if (!householdId || !userId) return redirect(redirectTo);
 
+  const net = await readNetworkContext();
+
   await db.transaction(async (tx) => {
     await tx
       .delete(householdMember)
@@ -273,7 +283,7 @@ export async function removeMember(formData: FormData): Promise<void> {
         targetType: "household_member",
         targetId: `${householdId}:${userId}`,
       },
-      tx,
+      { client: tx, net },
     );
   });
 

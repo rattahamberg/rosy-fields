@@ -25,7 +25,8 @@ export function proxy(request: NextRequest) {
   if (sessionCookie) {
     if (pathname === "/" || pathname === "/login" || pathname === "/signup") {
       const next = request.nextUrl.searchParams.get("next");
-      const dest = isSafePath(next) ? next! : "/dashboard";
+      // isSafePath narrows next from `string | null` to `string`.
+      const dest = isSafePath(next) ? next : "/dashboard";
       return NextResponse.redirect(new URL(dest, request.url));
     }
     return NextResponse.next();
@@ -44,6 +45,16 @@ export function proxy(request: NextRequest) {
   return NextResponse.next();
 }
 
+// `/admin/:path*` doesn't reliably match bare `/admin` in Next 16's matcher
+// syntax — list it explicitly. Same for `/dashboard`.
 export const config = {
-  matcher: ["/", "/dashboard/:path*", "/admin/:path*", "/login", "/signup"],
+  matcher: [
+    "/",
+    "/dashboard",
+    "/dashboard/:path*",
+    "/admin",
+    "/admin/:path*",
+    "/login",
+    "/signup",
+  ],
 };

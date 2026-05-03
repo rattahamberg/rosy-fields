@@ -1,0 +1,47 @@
+"use client";
+
+import { useEffect } from "react";
+
+const SHOW_DIGEST = process.env.NODE_ENV !== "production";
+
+// Per-detail-page error UI. Used by `app/admin/users/[id]/error.tsx` and
+// `app/admin/households/[id]/error.tsx` so a row-level failure surfaces
+// inside the admin shell without unmounting the nav.
+//
+// Note: `unstable_retry` is the Next 16.2.0+ replacement for `reset` and
+// will likely be renamed to `retry` once the API stabilises.
+export function AdminDetailError({
+  error,
+  unstable_retry,
+  label,
+  logTag,
+}: {
+  error: Error & { digest?: string };
+  unstable_retry: () => void;
+  label: string;
+  logTag: string;
+}) {
+  useEffect(() => {
+    console.error(logTag, error);
+  }, [error, logTag]);
+
+  return (
+    <div className="space-y-4 rounded-md border border-red-300 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
+      <h2 className="text-sm font-semibold text-red-900 dark:text-red-200">
+        Couldn&apos;t load this {label}
+      </h2>
+      {SHOW_DIGEST && error.digest ? (
+        <p className="text-xs text-red-800 dark:text-red-300">
+          Reference: <code>{error.digest}</code>
+        </p>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => unstable_retry()}
+        className="rounded bg-red-600 px-3 py-1.5 text-sm text-white"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}

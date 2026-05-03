@@ -6,8 +6,8 @@ import {
   ADMIN_HOUSEHOLD_LIST_LIMIT,
   ADMIN_SEARCH_MIN_LENGTH,
 } from "@/lib/admin/config";
-import { evalSearch } from "@/lib/admin/search";
-import { AdminTable } from "@/app/admin/_components";
+import { resolveSearch } from "@/lib/admin/search";
+import { AdminTable, PrimaryButton } from "@/app/admin/_components";
 import { db } from "@/lib/db";
 import { household, householdMember, user } from "@/lib/db/schema";
 
@@ -25,7 +25,7 @@ export default async function AdminHouseholdsPage({
   await verifyAdmin();
 
   const { q } = await searchParams;
-  const { trimmedQ, searchActive, searchTooShort } = evalSearch(q);
+  const { trimmedQ, searchActive, searchTooShort } = resolveSearch(q);
 
   const rows = searchTooShort
     ? []
@@ -87,12 +87,7 @@ export default async function AdminHouseholdsPage({
           placeholder={`Search by name (≥${ADMIN_SEARCH_MIN_LENGTH} chars)…`}
           className="w-full max-w-sm rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
         />
-        <button
-          type="submit"
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
-        >
-          Search
-        </button>
+        <PrimaryButton>Search</PrimaryButton>
         {trimmedQ && (
           <Link
             href="/admin/households"
