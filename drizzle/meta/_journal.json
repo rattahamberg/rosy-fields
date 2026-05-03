@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1777708812729,
+      "tag": "0000_initial_auth_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777766964883,
+      "tag": "0001_admin_panel_v1",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777768175268,
+      "tag": "0002_admin_panel_v2",
+      "breakpoints": true
+    }
+  ]
+}
