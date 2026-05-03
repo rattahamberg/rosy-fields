@@ -4,18 +4,12 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { signIn } from "@/lib/auth-client";
-
-function safeNext(target: string | null): string {
-  if (!target) return "/dashboard";
-  // Same-origin only — block `//evil.com` and absolute URLs.
-  if (target.startsWith("/") && !target.startsWith("//")) return target;
-  return "/dashboard";
-}
+import { safePath } from "@/lib/safe-redirect";
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = safeNext(searchParams.get("next"));
+  const next = safePath(searchParams.get("next"), "/dashboard");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

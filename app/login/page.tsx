@@ -10,7 +10,7 @@ export default function LoginPage() {
   // Suspense boundary required because LoginForm calls useSearchParams()
   // (to honor the `?next=` redirect captured by the proxy).
   return (
-    <Suspense>
+    <Suspense fallback={null}>
       <LoginForm />
     </Suspense>
   );

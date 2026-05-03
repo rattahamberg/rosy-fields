@@ -114,20 +114,30 @@ export const verification = pgTable(
   (t) => [index("verification_identifier_idx").on(t.identifier)],
 );
 
-export const household = pgTable("household", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .defaultNow()
-    .notNull()
-    .$onUpdate(() => new Date()),
-  createdByUserId: text("created_by_user_id").references(() => user.id, {
-    onDelete: "set null",
-  }),
-});
+export const household = pgTable(
+  "household",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    // FK index — household-list LEFT JOINs user via this column.
+    index("household_created_by_user_id_idx").on(t.createdByUserId),
+    // Trigram search on household name (mirrors user search).
+    index("household_name_trgm_idx")
+      .using("gin", sql`name gin_trgm_ops`),
+  ],
+);
 
 export const householdMember = pgTable(
   "household_member",
@@ -148,6 +158,9 @@ export const householdMember = pgTable(
   (t) => [
     primaryKey({ columns: [t.householdId, t.userId] }),
     index("household_member_user_id_idx").on(t.userId),
+    // FK index — added_by_user_id is set null on user deletion, which
+    // requires a scan otherwise.
+    index("household_member_added_by_user_id_idx").on(t.addedByUserId),
   ],
 );
 

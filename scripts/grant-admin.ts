@@ -5,9 +5,12 @@ import ws from "ws";
 import { user } from "../lib/db/schema";
 
 async function main() {
-  const email = process.argv[2];
+  const args = process.argv.slice(2);
+  const dryRun = args.includes("--dry-run");
+  const email = args.find((a) => !a.startsWith("--"));
+
   if (!email) {
-    console.error("Usage: npm run grant-admin -- <email>");
+    console.error("Usage: npm run grant-admin -- <email> [--dry-run]");
     process.exit(1);
   }
 
@@ -22,6 +25,30 @@ async function main() {
   const db = drizzle({ client: pool, schema: { user } });
 
   try {
+    if (dryRun) {
+      const [match] = await db
+        .select({
+          id: user.id,
+          email: user.email,
+          role: user.role,
+        })
+        .from(user)
+        .where(eq(user.email, email))
+        .limit(1);
+      if (!match) {
+        console.log(`[dry-run] No user with email ${email} — would not promote.`);
+        process.exit(1);
+      }
+      if (match.role === "admin") {
+        console.log(`[dry-run] ${email} is already admin (id=${match.id}).`);
+      } else {
+        console.log(
+          `[dry-run] Would promote ${email} (id=${match.id}) from "${match.role}" to "admin".`,
+        );
+      }
+      return;
+    }
+
     const result = await db
       .update(user)
       .set({ role: "admin" })

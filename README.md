@@ -1,36 +1,96 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# rosy-fields
 
-## Getting Started
+Personal Next.js 16 app: email/password auth, a dashboard, and an admin panel
+for searching users and curating households.
 
-First, run the development server:
+## Stack
+
+- **Next.js 16** (App Router; `proxy.ts` is the middleware file, NOT `middleware.ts`)
+- **React 19** with Server Components + Server Actions (`useActionState` for forms with field state)
+- **Better Auth 1.x** (`lib/auth.ts`) — email/password only
+- **Drizzle ORM** + **Neon Postgres** over WebSocket (`@neondatabase/serverless`)
+- **Tailwind v4**, deployed on **Vercel**
+
+## First-time setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local       # then fill in DATABASE_URL_*, BETTER_AUTH_*
+npm run migrate                  # apply pending Drizzle migrations
+npm run dev                      # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Sign up at `/signup`, then promote the first admin from another shell:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run grant-admin -- you@example.com
+# preview without writing:
+npm run grant-admin -- you@example.com --dry-run
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Scripts
 
-## Learn More
+| Command                         | Purpose                                                                 |
+| ------------------------------- | ----------------------------------------------------------------------- |
+| `npm run dev`                   | Dev server with Turbopack                                               |
+| `npm run build`                 | Production build                                                        |
+| `npm run lint`                  | ESLint                                                                  |
+| `npm run migrate`               | Apply pending migrations against `DATABASE_URL_UNPOOLED`                |
+| `npm run migrate:bootstrap`     | Mark all migrations as applied without running them (one-time only)     |
+| `npm run grant-admin -- <email>`| Promote a user to `role = 'admin'`                                      |
 
-To learn more about Next.js, take a look at the following resources:
+## Environment
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+See `.env.example`. All vars are required at runtime.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Var                       | What                                                       |
+| ------------------------- | ---------------------------------------------------------- |
+| `DATABASE_URL`            | Neon **pooled** connection (PgBouncer) — used at runtime   |
+| `DATABASE_URL_UNPOOLED`   | Neon **unpooled** connection — used by migrations          |
+| `BETTER_AUTH_SECRET`      | 32-byte base64. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
+| `BETTER_AUTH_URL`         | Public origin, no trailing slash                           |
 
-## Deploy on Vercel
+## Migrations
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Schema lives in `lib/db/schema.ts`. After editing:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npx drizzle-kit generate --name <description>   # writes drizzle/000X_<description>.sql
+# inspect/edit the SQL, then:
+npm run migrate                                 # apply locally
+git add drizzle/ lib/db/schema.ts               # commit BOTH the schema and the journal
+git push                                        # CI runs the same `npm run migrate` against prod
+```
+
+The `__migrations` table tracks applied tags AND the SHA-256 of each file.
+Editing an already-applied migration causes `npm run migrate` to error out.
+Always write a new migration instead.
+
+`scripts/setup-cron.sql` is an optional one-time setup for pg_cron retention
+jobs (purges expired sessions and old audit log rows). Requires the pg_cron
+extension to be enabled in the Neon console.
+
+## CI / Deploy
+
+`.github/workflows/migrate.yml` runs on push to `master`:
+1. Applies any pending migrations to prod (via `DATABASE_URL_UNPOOLED` secret).
+2. Optionally triggers a Vercel deploy hook (set `VERCEL_DEPLOY_HOOK` secret
+   AND disable Vercel's git auto-deploy if you want strict ordering).
+
+Vercel auto-deploys on push to `master` by default — that runs in parallel
+with the migration job, so a migration failure can briefly leave new code on
+old schema. Use the deploy hook setup to gate Vercel behind the migration.
+
+## Architecture notes
+
+- Admin auth gate lives in `lib/admin/dal.ts`. **Every** admin page must call
+  `await verifyAdmin()` at the top — the layout call alone is insufficient
+  under partial rendering (Next 16 docs explicitly warn about this).
+- Admin mutations are Server Actions in `app/admin/households/actions.ts`.
+  Each one wraps the DB write AND the audit log insert in a single
+  `db.transaction()` so they cannot diverge.
+- View pages use `after()` (`next/server`) for non-blocking audit writes.
+- Shared admin components live in `app/admin/_components/` (underscore
+  prefix = private, never routable).
+- Per-page constants live in `lib/admin/config.ts`. Don't sprinkle magic
+  numbers across page files.

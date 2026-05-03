@@ -2,14 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { asc, eq, ilike, sql } from "drizzle-orm";
 import { verifyAdmin } from "@/lib/admin/dal";
+import {
+  ADMIN_HOUSEHOLD_LIST_LIMIT,
+  ADMIN_SEARCH_MIN_LENGTH,
+} from "@/lib/admin/config";
+import { AdminTable } from "@/app/admin/_components/admin-table";
 import { db } from "@/lib/db";
 import { household, householdMember, user } from "@/lib/db/schema";
 
 export const metadata: Metadata = {
   title: "Households",
 };
-
-const LIST_LIMIT = 200;
 
 type SearchParams = Promise<{ q?: string }>;
 
@@ -22,27 +25,31 @@ export default async function AdminHouseholdsPage({
 
   const { q } = await searchParams;
   const trimmedQ = q?.trim() ?? "";
+  const searchActive = trimmedQ.length >= ADMIN_SEARCH_MIN_LENGTH;
+  const searchTooShort = trimmedQ.length > 0 && !searchActive;
 
-  const rows = await db
-    .select({
-      id: household.id,
-      name: household.name,
-      createdAt: household.createdAt,
-      memberCount: sql<number>`count(${householdMember.userId})::int`.as(
-        "member_count",
-      ),
-      createdByEmail: user.email,
-    })
-    .from(household)
-    .leftJoin(
-      householdMember,
-      eq(householdMember.householdId, household.id),
-    )
-    .leftJoin(user, eq(user.id, household.createdByUserId))
-    .where(trimmedQ ? ilike(household.name, `%${trimmedQ}%`) : undefined)
-    .groupBy(household.id, user.email)
-    .orderBy(asc(household.name))
-    .limit(LIST_LIMIT);
+  const rows = searchTooShort
+    ? []
+    : await db
+        .select({
+          id: household.id,
+          name: household.name,
+          createdAt: household.createdAt,
+          memberCount: sql<number>`count(${householdMember.userId})::int`.as(
+            "member_count",
+          ),
+          createdByEmail: user.email,
+        })
+        .from(household)
+        .leftJoin(
+          householdMember,
+          eq(householdMember.householdId, household.id),
+        )
+        .leftJoin(user, eq(user.id, household.createdByUserId))
+        .where(searchActive ? ilike(household.name, `%${trimmedQ}%`) : undefined)
+        .groupBy(household.id, user.email)
+        .orderBy(asc(household.name))
+        .limit(ADMIN_HOUSEHOLD_LIST_LIMIT);
 
   // Surface duplicate-name groups as an admin warning — names are not unique
   // (per spec) but the delete-by-name confirmation gets risky if duplicates
@@ -78,7 +85,7 @@ export default async function AdminHouseholdsPage({
           type="search"
           name="q"
           defaultValue={trimmedQ}
-          placeholder="Search by name…"
+          placeholder={`Search by name (≥${ADMIN_SEARCH_MIN_LENGTH} chars)…`}
           className="w-full max-w-sm rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
         />
         <button
@@ -97,23 +104,20 @@ export default async function AdminHouseholdsPage({
         )}
       </form>
 
-      <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-sm">
-          <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
-            <tr>
-              <th className="px-4 py-2 font-medium">Name</th>
-              <th className="px-4 py-2 font-medium">Members</th>
-              <th className="px-4 py-2 font-medium">Created by</th>
-              <th className="px-4 py-2 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {rows.length === 0 && (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="px-4 py-6 text-center text-zinc-500"
-                >
+      {searchTooShort && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Search needs at least {ADMIN_SEARCH_MIN_LENGTH} characters.
+        </p>
+      )}
+
+      <AdminTable headers={["Name", "Members", "Created by", "Created"]}>
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={4} className="px-4 py-6 text-center text-zinc-500">
+              {searchTooShort ? (
+                "Type more to search."
+              ) : (
+                <>
                   No households yet.{" "}
                   <Link
                     href="/admin/households/new"
@@ -121,31 +125,31 @@ export default async function AdminHouseholdsPage({
                   >
                     Create the first one.
                   </Link>
-                </td>
-              </tr>
-            )}
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td className="px-4 py-2">
-                  <Link
-                    href={`/admin/households/${row.id}`}
-                    className="text-blue-600 hover:underline dark:text-blue-400"
-                  >
-                    {row.name}
-                  </Link>
-                </td>
-                <td className="px-4 py-2 text-xs">{row.memberCount}</td>
-                <td className="px-4 py-2 text-xs text-zinc-500">
-                  {row.createdByEmail ?? "—"}
-                </td>
-                <td className="px-4 py-2 text-xs text-zinc-500">
-                  {row.createdAt.toISOString().slice(0, 10)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </>
+              )}
+            </td>
+          </tr>
+        )}
+        {rows.map((row) => (
+          <tr key={row.id}>
+            <td className="px-4 py-2">
+              <Link
+                href={`/admin/households/${row.id}`}
+                className="text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {row.name}
+              </Link>
+            </td>
+            <td className="px-4 py-2 text-xs">{row.memberCount}</td>
+            <td className="px-4 py-2 text-xs text-zinc-500">
+              {row.createdByEmail ?? "—"}
+            </td>
+            <td className="px-4 py-2 text-xs text-zinc-500">
+              {row.createdAt.toISOString().slice(0, 10)}
+            </td>
+          </tr>
+        ))}
+      </AdminTable>
     </div>
   );
 }

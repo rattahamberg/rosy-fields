@@ -5,6 +5,7 @@ import {
   renameHouseholdAction,
   type FormState,
 } from "@/app/admin/households/actions";
+import { ADMIN_HOUSEHOLD_NAME_MAX } from "@/lib/admin/config";
 
 const INITIAL: FormState = { ok: false, error: "" };
 
@@ -23,7 +24,7 @@ export function RenameHouseholdForm({
   return (
     <form
       action={formAction}
-      className="flex flex-wrap items-end gap-2 rounded-md border border-zinc-200 p-4 dark:border-zinc-800"
+      className="flex flex-wrap items-end gap-2"
     >
       <input type="hidden" name="householdId" value={householdId} />
       <label className="flex flex-1 flex-col gap-1 text-xs text-zinc-500">
@@ -33,7 +34,7 @@ export function RenameHouseholdForm({
           name="name"
           defaultValue={currentName}
           required
-          maxLength={100}
+          maxLength={ADMIN_HOUSEHOLD_NAME_MAX}
           className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
         />
       </label>

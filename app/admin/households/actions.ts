@@ -7,25 +7,25 @@ import { verifyAdmin } from "@/lib/admin/dal";
 import { writeAudit } from "@/lib/admin/audit";
 import { db } from "@/lib/db";
 import { household, householdMember } from "@/lib/db/schema";
-
-const NAME_MIN = 1;
-const NAME_MAX = 100;
+import { safePath } from "@/lib/safe-redirect";
+import {
+  ADMIN_HOUSEHOLD_NAME_MAX,
+  ADMIN_HOUSEHOLD_NAME_MIN,
+} from "@/lib/admin/config";
 
 // ---------- shared helpers ----------
 
 export type FormState = { ok: true; id?: string } | { ok: false; error: string };
 
-function safeRedirect(target: string | undefined, fallback: string): string {
-  if (!target) return fallback;
-  // Only allow same-origin paths to prevent open redirects.
-  if (target.startsWith("/") && !target.startsWith("//")) return target;
-  return fallback;
-}
-
 function normalizeName(raw: FormDataEntryValue | null): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
-  if (trimmed.length < NAME_MIN || trimmed.length > NAME_MAX) return null;
+  if (
+    trimmed.length < ADMIN_HOUSEHOLD_NAME_MIN ||
+    trimmed.length > ADMIN_HOUSEHOLD_NAME_MAX
+  ) {
+    return null;
+  }
   return trimmed;
 }
 
@@ -53,7 +53,7 @@ export async function createHouseholdAction(
   if (!name) {
     return {
       ok: false,
-      error: `Name must be ${NAME_MIN}–${NAME_MAX} characters`,
+      error: `Name must be ${ADMIN_HOUSEHOLD_NAME_MIN}–${ADMIN_HOUSEHOLD_NAME_MAX} characters`,
     };
   }
 
@@ -78,7 +78,6 @@ export async function createHouseholdAction(
   });
 
   revalidatePath("/admin/households");
-  // Successful create — client component reads `state.id` and redirects.
   return { ok: true, id };
 }
 
@@ -95,7 +94,7 @@ export async function renameHouseholdAction(
   if (!name) {
     return {
       ok: false,
-      error: `Name must be ${NAME_MIN}–${NAME_MAX} characters`,
+      error: `Name must be ${ADMIN_HOUSEHOLD_NAME_MIN}–${ADMIN_HOUSEHOLD_NAME_MAX} characters`,
     };
   }
 
@@ -136,26 +135,30 @@ export async function deleteHousehold(formData: FormData): Promise<void> {
   const confirmName = String(formData.get("confirmName") ?? "").trim();
   if (!householdId) return redirect("/admin/households");
 
-  const [existing] = await db
-    .select({ id: household.id, name: household.name })
-    .from(household)
-    .where(eq(household.id, householdId))
-    .limit(1);
-  if (!existing) {
-    return redirect(
-      `/admin/households?error=${encodeURIComponent("Household not found")}`,
-    );
-  }
-  if (confirmName !== existing.name) {
-    return redirect(
-      `/admin/households/${householdId}?error=${encodeURIComponent(
-        "Confirmation name did not match",
-      )}`,
-    );
-  }
+  // Lookup, name-check, and delete in one transaction with row lock — closes
+  // the TOCTOU window where a concurrent rename could let an admin delete
+  // the wrong household.
+  let deletedName: string | null = null;
+  let confirmFailed = false;
+  let notFoundFlag = false;
 
   await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: household.id, name: household.name })
+      .from(household)
+      .where(eq(household.id, householdId))
+      .for("update")
+      .limit(1);
+    if (!existing) {
+      notFoundFlag = true;
+      return;
+    }
+    if (confirmName !== existing.name) {
+      confirmFailed = true;
+      return;
+    }
     await tx.delete(household).where(eq(household.id, householdId));
+    deletedName = existing.name;
     await writeAudit(
       {
         actorUserId: session.user.id,
@@ -169,6 +172,22 @@ export async function deleteHousehold(formData: FormData): Promise<void> {
     );
   });
 
+  if (notFoundFlag) {
+    return redirect(
+      `/admin/households?error=${encodeURIComponent("Household not found")}`,
+    );
+  }
+  if (confirmFailed) {
+    return redirect(
+      `/admin/households/${householdId}?error=${encodeURIComponent(
+        "Confirmation name did not match",
+      )}`,
+    );
+  }
+  // Mark deletedName as used (lint defense; it's intentionally captured for
+  // the audit metadata above).
+  void deletedName;
+
   revalidatePath("/admin/households");
   return redirect("/admin/households");
 }
@@ -177,7 +196,7 @@ export async function addMember(formData: FormData): Promise<void> {
   const session = await verifyAdmin();
   const householdId = String(formData.get("householdId") ?? "");
   const userId = String(formData.get("userId") ?? "");
-  const redirectTo = safeRedirect(
+  const redirectTo = safePath(
     formData.get("redirectTo")?.toString(),
     `/admin/households/${householdId}`,
   );
@@ -226,7 +245,7 @@ export async function removeMember(formData: FormData): Promise<void> {
   const session = await verifyAdmin();
   const householdId = String(formData.get("householdId") ?? "");
   const userId = String(formData.get("userId") ?? "");
-  const redirectTo = safeRedirect(
+  const redirectTo = safePath(
     formData.get("redirectTo")?.toString(),
     `/admin/households/${householdId}`,
   );

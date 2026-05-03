@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   createHouseholdAction,
   type FormState,
 } from "@/app/admin/households/actions";
+import { ADMIN_HOUSEHOLD_NAME_MAX } from "@/lib/admin/config";
 
 const INITIAL: FormState = { ok: false, error: "" };
 
@@ -16,10 +17,15 @@ export function NewHouseholdForm() {
     INITIAL,
   );
   const router = useRouter();
+  const navigated = useRef(false);
 
-  // Successful creates return { ok: true, id } — navigate to the detail page.
+  // `useActionState` returns a fresh `state` object reference each render;
+  // the latch prevents the redirect from re-firing on subsequent renders.
   useEffect(() => {
-    if (state.ok && state.id) router.push(`/admin/households/${state.id}`);
+    if (state.ok && state.id && !navigated.current) {
+      navigated.current = true;
+      router.push(`/admin/households/${state.id}`);
+    }
   }, [state, router]);
 
   return (
@@ -32,7 +38,7 @@ export function NewHouseholdForm() {
           type="text"
           name="name"
           required
-          maxLength={100}
+          maxLength={ADMIN_HOUSEHOLD_NAME_MAX}
           autoFocus
           className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
         />

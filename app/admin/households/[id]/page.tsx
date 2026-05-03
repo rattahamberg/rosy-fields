@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, desc, eq, notInArray } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { verifyAdmin } from "@/lib/admin/dal";
 import { resolveUserEmails } from "@/lib/admin/queries";
 import {
   ADMIN_ERROR_DISPLAY_MAX,
   ADMIN_USER_PICKER_LIMIT,
 } from "@/lib/admin/config";
+import { Section } from "@/app/admin/_components/section";
 import { DetailHeader } from "@/app/admin/_components/detail-header";
+import { AdminTable } from "@/app/admin/_components/admin-table";
 import { db } from "@/lib/db";
 import { household, householdMember, user } from "@/lib/db/schema";
 import { addMember, removeMember } from "@/app/admin/households/actions";
@@ -33,52 +35,51 @@ export default async function HouseholdDetailPage({
   const { id } = await params;
   const { error } = await searchParams;
 
-  const [target] = await db
-    .select({
-      id: household.id,
-      name: household.name,
-      createdAt: household.createdAt,
-      createdByUserId: household.createdByUserId,
-      createdByEmail: user.email,
-    })
-    .from(household)
-    .leftJoin(user, eq(user.id, household.createdByUserId))
-    .where(eq(household.id, id))
-    .limit(1);
-
-  if (!target) notFound();
-
-  const members = await db
-    .select({
-      userId: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      addedAt: householdMember.addedAt,
-      addedByUserId: householdMember.addedByUserId,
-    })
-    .from(householdMember)
-    .innerJoin(user, eq(user.id, householdMember.userId))
-    .where(eq(householdMember.householdId, id))
-    .orderBy(asc(user.email));
-
-  const memberIds = members.map((m) => m.userId);
-
-  const [candidates, addedByEmail] = await Promise.all([
+  // Three independent reads — fan out in parallel. The candidates query uses
+  // NOT EXISTS so it doesn't need the members list to compute exclusions first.
+  const [[target], members, candidates] = await Promise.all([
+    db
+      .select({
+        id: household.id,
+        name: household.name,
+        createdAt: household.createdAt,
+        createdByUserId: household.createdByUserId,
+        createdByEmail: user.email,
+      })
+      .from(household)
+      .leftJoin(user, eq(user.id, household.createdByUserId))
+      .where(eq(household.id, id))
+      .limit(1),
+    db
+      .select({
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        addedAt: householdMember.addedAt,
+        addedByUserId: householdMember.addedByUserId,
+      })
+      .from(householdMember)
+      .innerJoin(user, eq(user.id, householdMember.userId))
+      .where(eq(householdMember.householdId, id))
+      .orderBy(asc(user.email)),
     db
       .select({ id: user.id, email: user.email, name: user.name })
       .from(user)
       .where(
-        memberIds.length > 0 ? notInArray(user.id, memberIds) : undefined,
+        sql`NOT EXISTS (SELECT 1 FROM ${householdMember} hm WHERE hm.user_id = ${user.id} AND hm.household_id = ${id})`,
       )
       .orderBy(desc(user.createdAt))
       .limit(ADMIN_USER_PICKER_LIMIT),
-    resolveUserEmails(
-      members
-        .map((m) => m.addedByUserId)
-        .filter((v): v is string => v !== null),
-    ),
   ]);
+
+  if (!target) notFound();
+
+  const addedByEmail = await resolveUserEmails(
+    members
+      .map((m) => m.addedByUserId)
+      .filter((v): v is string => v !== null),
+  );
 
   const trimmedError = error?.slice(0, ADMIN_ERROR_DISPLAY_MAX);
 
@@ -105,90 +106,69 @@ export default async function HouseholdDetailPage({
         </p>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-          Rename
-        </h2>
+      <Section title="Rename">
         <RenameHouseholdForm
           householdId={target.id}
           currentName={target.name}
         />
-      </section>
+      </Section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-          Members ({members.length})
-        </h2>
-        <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
-          <table className="w-full text-sm">
-            <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
-              <tr>
-                <th className="px-4 py-2 font-medium">Email</th>
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Role</th>
-                <th className="px-4 py-2 font-medium">Added</th>
-                <th className="px-4 py-2 font-medium">Added by</th>
-                <th className="px-4 py-2 font-medium" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {members.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-6 text-center text-zinc-500"
+      <Section title={`Members (${members.length})`}>
+        <AdminTable
+          headers={["Email", "Name", "Role", "Added", "Added by", null]}
+        >
+          {members.length === 0 && (
+            <tr>
+              <td colSpan={6} className="px-4 py-6 text-center text-zinc-500">
+                No members yet.
+              </td>
+            </tr>
+          )}
+          {members.map((m) => (
+            <tr key={m.userId}>
+              <td className="px-4 py-2">
+                <Link
+                  href={`/admin/users/${m.userId}`}
+                  className="text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  {m.email}
+                </Link>
+              </td>
+              <td className="px-4 py-2">{m.name}</td>
+              <td className="px-4 py-2 text-xs text-zinc-500">{m.role}</td>
+              <td className="px-4 py-2 text-xs text-zinc-500">
+                {m.addedAt.toISOString()}
+              </td>
+              <td className="px-4 py-2 text-xs text-zinc-500">
+                {m.addedByUserId
+                  ? addedByEmail.get(m.addedByUserId) ?? m.addedByUserId
+                  : "—"}
+              </td>
+              <td className="px-4 py-2 text-right">
+                <form action={removeMember}>
+                  <input type="hidden" name="householdId" value={target.id} />
+                  <input type="hidden" name="userId" value={m.userId} />
+                  <input
+                    type="hidden"
+                    name="redirectTo"
+                    value={`/admin/households/${target.id}`}
+                  />
+                  <button
+                    type="submit"
+                    className="text-xs text-red-600 hover:underline dark:text-red-400"
                   >
-                    No members yet.
-                  </td>
-                </tr>
-              )}
-              {members.map((m) => (
-                <tr key={m.userId}>
-                  <td className="px-4 py-2">
-                    <Link
-                      href={`/admin/users/${m.userId}`}
-                      className="text-blue-600 hover:underline dark:text-blue-400"
-                    >
-                      {m.email}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2">{m.name}</td>
-                  <td className="px-4 py-2 text-xs text-zinc-500">{m.role}</td>
-                  <td className="px-4 py-2 text-xs text-zinc-500">
-                    {m.addedAt.toISOString()}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-zinc-500">
-                    {m.addedByUserId
-                      ? addedByEmail.get(m.addedByUserId) ?? m.addedByUserId
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    <form action={removeMember}>
-                      <input type="hidden" name="householdId" value={target.id} />
-                      <input type="hidden" name="userId" value={m.userId} />
-                      <input
-                        type="hidden"
-                        name="redirectTo"
-                        value={`/admin/households/${target.id}`}
-                      />
-                      <button
-                        type="submit"
-                        className="text-xs text-red-600 hover:underline dark:text-red-400"
-                      >
-                        Remove
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    Remove
+                  </button>
+                </form>
+              </td>
+            </tr>
+          ))}
+        </AdminTable>
 
         {candidates.length > 0 ? (
           <form
             action={addMember}
-            className="flex flex-wrap items-end gap-2 rounded-md border border-zinc-200 p-4 dark:border-zinc-800"
+            className="mt-4 flex flex-wrap items-end gap-2"
           >
             <input type="hidden" name="householdId" value={target.id} />
             <input
@@ -224,22 +204,19 @@ export default async function HouseholdDetailPage({
             )}
           </form>
         ) : (
-          <p className="text-xs text-zinc-500">
+          <p className="mt-4 text-xs text-zinc-500">
             All users are already in this household.
           </p>
         )}
-      </section>
+      </Section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-          Danger zone
-        </h2>
+      <Section title="Danger zone">
         <DeleteHouseholdForm
           householdId={target.id}
           householdName={target.name}
           memberCount={members.length}
         />
-      </section>
+      </Section>
     </div>
   );
 }

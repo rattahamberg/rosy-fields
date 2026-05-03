@@ -10,13 +10,15 @@ import {
   lt,
   or,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { verifyAdmin } from "@/lib/admin/dal";
 import {
-  ADMIN_ERROR_DISPLAY_MAX,
+  ADMIN_HOUSEHOLD_NAME_MAX,
   ADMIN_SEARCH_MIN_LENGTH,
   ADMIN_USER_PAGE_SIZE,
 } from "@/lib/admin/config";
+import { AdminTable } from "@/app/admin/_components/admin-table";
 import { db } from "@/lib/db";
 import {
   household,
@@ -68,36 +70,28 @@ export default async function AdminUsersPage({
   const trimmedQ = q?.trim() ?? "";
   const cursorParsed = parseCursor(cursor);
 
-  // Trigram (`gin_trgm_ops`) only kicks in at >= 3 chars; shorter searches
-  // would seq-scan the table, so we just refuse them.
   const searchActive = trimmedQ.length >= ADMIN_SEARCH_MIN_LENGTH;
-  const searchTooShort =
-    trimmedQ.length > 0 && !searchActive;
+  const searchTooShort = trimmedQ.length > 0 && !searchActive;
 
-  const conditions = [];
+  const conditions: SQL[] = [];
   if (searchActive) {
     const pattern = `%${trimmedQ}%`;
-    conditions.push(
-      or(ilike(user.email, pattern), ilike(user.name, pattern)) as ReturnType<
-        typeof eq
-      >,
-    );
+    const expr = or(ilike(user.email, pattern), ilike(user.name, pattern));
+    if (expr) conditions.push(expr);
   }
   if (cursorParsed) {
     // Explicit OR form (rather than row-value `(a,b) < (x,y)`) so the planner
     // can use the (created_at DESC, id DESC) composite index.
-    conditions.push(
-      or(
-        lt(user.createdAt, cursorParsed.createdAt),
-        and(
-          eq(user.createdAt, cursorParsed.createdAt),
-          lt(user.id, cursorParsed.id),
-        ),
-      ) as ReturnType<typeof eq>,
+    const expr = or(
+      lt(user.createdAt, cursorParsed.createdAt),
+      and(
+        eq(user.createdAt, cursorParsed.createdAt),
+        lt(user.id, cursorParsed.id),
+      ),
     );
+    if (expr) conditions.push(expr);
   }
 
-  // Apply householdId filter via EXISTS — keeps the main GROUP BY clean.
   if (householdId) {
     conditions.push(
       sql`EXISTS (SELECT 1 FROM ${householdMember} hm WHERE hm.user_id = ${user.id} AND hm.household_id = ${householdId})`,
@@ -228,86 +222,78 @@ export default async function AdminUsersPage({
       {filterLabel && (
         <div className="text-xs text-zinc-500">
           Filtered to household:{" "}
-          <strong>{filterLabel.slice(0, ADMIN_ERROR_DISPLAY_MAX)}</strong>
+          <strong>{filterLabel.slice(0, ADMIN_HOUSEHOLD_NAME_MAX)}</strong>
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-sm">
-          <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
-            <tr>
-              <th className="px-4 py-2 font-medium">Email</th>
-              <th className="px-4 py-2 font-medium">Name</th>
-              <th className="px-4 py-2 font-medium">Role</th>
-              <th className="px-4 py-2 font-medium">Verified</th>
-              <th className="px-4 py-2 font-medium">Households</th>
-              <th className="px-4 py-2 font-medium">Sessions</th>
-              <th className="px-4 py-2 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {pageRows.length === 0 && (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-6 text-center text-zinc-500"
+      <AdminTable
+        headers={[
+          "Email",
+          "Name",
+          "Role",
+          "Verified",
+          "Households",
+          "Sessions",
+          "Created",
+        ]}
+      >
+        {pageRows.length === 0 && (
+          <tr>
+            <td colSpan={7} className="px-4 py-6 text-center text-zinc-500">
+              No users match.
+            </td>
+          </tr>
+        )}
+        {pageRows.map((row) => {
+          const memberships = membershipsByUser.get(row.id) ?? [];
+          return (
+            <tr key={row.id}>
+              <td className="px-4 py-2">
+                <Link
+                  href={`/admin/users/${row.id}`}
+                  className="text-blue-600 hover:underline dark:text-blue-400"
                 >
-                  No users match.
-                </td>
-              </tr>
-            )}
-            {pageRows.map((row) => {
-              const memberships = membershipsByUser.get(row.id) ?? [];
-              return (
-                <tr key={row.id}>
-                  <td className="px-4 py-2">
-                    <Link
-                      href={`/admin/users/${row.id}`}
-                      className="text-blue-600 hover:underline dark:text-blue-400"
-                    >
-                      {row.email}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2">{row.name}</td>
-                  <td className="px-4 py-2">
-                    {row.role === "admin" ? (
-                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
-                        admin
-                      </span>
-                    ) : (
-                      <span className="text-zinc-500">user</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-xs">
-                    {row.emailVerified ? "✓" : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-xs">
-                    {memberships.length === 0 ? (
-                      <span className="text-zinc-400">—</span>
-                    ) : (
-                      memberships.map((m, i) => (
-                        <span key={m.householdId}>
-                          {i > 0 && ", "}
-                          <Link
-                            href={`/admin/households/${m.householdId}`}
-                            className="text-blue-600 hover:underline dark:text-blue-400"
-                          >
-                            {m.name}
-                          </Link>
-                        </span>
-                      ))
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-xs">{row.activeSessions}</td>
-                  <td className="px-4 py-2 text-xs text-zinc-500">
-                    {row.createdAt.toISOString().slice(0, 10)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                  {row.email}
+                </Link>
+              </td>
+              <td className="px-4 py-2">{row.name}</td>
+              <td className="px-4 py-2">
+                {row.role === "admin" ? (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+                    admin
+                  </span>
+                ) : (
+                  <span className="text-zinc-500">user</span>
+                )}
+              </td>
+              <td className="px-4 py-2 text-xs">
+                {row.emailVerified ? "✓" : "—"}
+              </td>
+              <td className="px-4 py-2 text-xs">
+                {memberships.length === 0 ? (
+                  <span className="text-zinc-400">—</span>
+                ) : (
+                  memberships.map((m, i) => (
+                    <span key={m.householdId}>
+                      {i > 0 && ", "}
+                      <Link
+                        href={`/admin/households/${m.householdId}`}
+                        className="text-blue-600 hover:underline dark:text-blue-400"
+                      >
+                        {m.name}
+                      </Link>
+                    </span>
+                  ))
+                )}
+              </td>
+              <td className="px-4 py-2 text-xs">{row.activeSessions}</td>
+              <td className="px-4 py-2 text-xs text-zinc-500">
+                {row.createdAt.toISOString().slice(0, 10)}
+              </td>
+            </tr>
+          );
+        })}
+      </AdminTable>
 
       <div className="flex items-center justify-between text-xs text-zinc-500">
         <span>

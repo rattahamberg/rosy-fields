@@ -2,15 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { after } from "next/server";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gt,
-  notInArray,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import { verifyAdmin } from "@/lib/admin/dal";
 import { writeAudit } from "@/lib/admin/audit";
 import { resolveUserEmails } from "@/lib/admin/queries";
@@ -18,6 +10,7 @@ import { ADMIN_HOUSEHOLD_PICKER_LIMIT } from "@/lib/admin/config";
 import { Section } from "@/app/admin/_components/section";
 import { DataGrid } from "@/app/admin/_components/data-grid";
 import { DetailHeader } from "@/app/admin/_components/detail-header";
+import { AdminTable } from "@/app/admin/_components/admin-table";
 import { db } from "@/lib/db";
 import {
   account,
@@ -60,20 +53,21 @@ export default async function AdminUserDetailPage({
 
   if (!target) notFound();
 
-  // Independent reads — fan out in parallel rather than waterfall.
-  const [accounts, sessions, pendingVerifications, memberships] =
+  // Independent reads — fan out in parallel rather than waterfall. The
+  // available-households query uses NOT EXISTS so it doesn't depend on the
+  // memberships query result first (avoids a sequential round trip).
+  const [accounts, sessions, pendingVerifications, memberships, availableHouseholds] =
     await Promise.all([
       // Whitelisted columns only — never select tokens, passwords, or
-      // verification values. The `::boolean` cast forces the driver to
-      // return a JS boolean for the IS NOT NULL expression.
+      // verification values. The Neon driver returns native JS booleans for
+      // boolean SQL expressions, so no cast is needed.
       db
         .select({
           providerId: account.providerId,
           accountId: account.accountId,
-          hasPassword:
-            sql<boolean>`(${account.password} IS NOT NULL)::boolean`.as(
-              "has_password",
-            ),
+          hasPassword: sql<boolean>`${account.password} IS NOT NULL`.as(
+            "has_password",
+          ),
           scope: account.scope,
           createdAt: account.createdAt,
         })
@@ -116,19 +110,17 @@ export default async function AdminUserDetailPage({
         .innerJoin(household, eq(household.id, householdMember.householdId))
         .where(eq(householdMember.userId, id))
         .orderBy(asc(household.name)),
+      db
+        .select({ id: household.id, name: household.name })
+        .from(household)
+        .where(
+          // NOT EXISTS anti-join — scales to large household counts where a
+          // `NOT IN ($1, $2, ...)` would balloon the query text.
+          sql`NOT EXISTS (SELECT 1 FROM ${householdMember} hm WHERE hm.household_id = ${household.id} AND hm.user_id = ${id})`,
+        )
+        .orderBy(asc(household.name))
+        .limit(ADMIN_HOUSEHOLD_PICKER_LIMIT),
     ]);
-
-  const memberHouseholdIds = memberships.map((m) => m.householdId);
-  const availableHouseholds = await db
-    .select({ id: household.id, name: household.name })
-    .from(household)
-    .where(
-      memberHouseholdIds.length > 0
-        ? notInArray(household.id, memberHouseholdIds)
-        : undefined,
-    )
-    .orderBy(asc(household.name))
-    .limit(ADMIN_HOUSEHOLD_PICKER_LIMIT);
 
   const addedByEmail = await resolveUserEmails(
     memberships
@@ -178,59 +170,49 @@ export default async function AdminUserDetailPage({
         {memberships.length === 0 ? (
           <p className="text-sm text-zinc-500">Not a member of any household.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wide text-zinc-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">Household</th>
-                <th className="px-3 py-2 font-medium">Added</th>
-                <th className="px-3 py-2 font-medium">Added by</th>
-                <th className="px-3 py-2 font-medium" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {memberships.map((m) => (
-                <tr key={m.householdId}>
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/admin/households/${m.householdId}`}
-                      className="text-blue-600 hover:underline dark:text-blue-400"
+          <AdminTable headers={["Household", "Added", "Added by", null]}>
+            {memberships.map((m) => (
+              <tr key={m.householdId}>
+                <td className="px-4 py-2">
+                  <Link
+                    href={`/admin/households/${m.householdId}`}
+                    className="text-blue-600 hover:underline dark:text-blue-400"
+                  >
+                    {m.name}
+                  </Link>
+                </td>
+                <td className="px-4 py-2 text-xs text-zinc-500">
+                  {m.addedAt.toISOString()}
+                </td>
+                <td className="px-4 py-2 text-xs text-zinc-500">
+                  {m.addedByUserId
+                    ? addedByEmail.get(m.addedByUserId) ?? m.addedByUserId
+                    : "—"}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <form action={removeMember}>
+                    <input
+                      type="hidden"
+                      name="householdId"
+                      value={m.householdId}
+                    />
+                    <input type="hidden" name="userId" value={target.id} />
+                    <input
+                      type="hidden"
+                      name="redirectTo"
+                      value={`/admin/users/${target.id}`}
+                    />
+                    <button
+                      type="submit"
+                      className="text-xs text-red-600 hover:underline dark:text-red-400"
                     >
-                      {m.name}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">
-                    {m.addedAt.toISOString()}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">
-                    {m.addedByUserId
-                      ? addedByEmail.get(m.addedByUserId) ?? m.addedByUserId
-                      : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <form action={removeMember}>
-                      <input
-                        type="hidden"
-                        name="householdId"
-                        value={m.householdId}
-                      />
-                      <input type="hidden" name="userId" value={target.id} />
-                      <input
-                        type="hidden"
-                        name="redirectTo"
-                        value={`/admin/users/${target.id}`}
-                      />
-                      <button
-                        type="submit"
-                        className="text-xs text-red-600 hover:underline dark:text-red-400"
-                      >
-                        Remove
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      Remove
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+          </AdminTable>
         )}
 
         {availableHouseholds.length > 0 ? (
@@ -283,34 +265,25 @@ export default async function AdminUserDetailPage({
         {accounts.length === 0 ? (
           <p className="text-sm text-zinc-500">None.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wide text-zinc-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">Provider</th>
-                <th className="px-3 py-2 font-medium">Account ID</th>
-                <th className="px-3 py-2 font-medium">Password</th>
-                <th className="px-3 py-2 font-medium">Scope</th>
-                <th className="px-3 py-2 font-medium">Created</th>
+          <AdminTable
+            headers={["Provider", "Account ID", "Password", "Scope", "Created"]}
+          >
+            {accounts.map((a) => (
+              <tr key={`${a.providerId}:${a.accountId}`}>
+                <td className="px-4 py-2">{a.providerId}</td>
+                <td className="px-4 py-2 text-xs">
+                  <code>{a.accountId}</code>
+                </td>
+                <td className="px-4 py-2 text-xs">
+                  {a.hasPassword ? "Set" : "—"}
+                </td>
+                <td className="px-4 py-2 text-xs">{a.scope ?? "—"}</td>
+                <td className="px-4 py-2 text-xs text-zinc-500">
+                  {a.createdAt.toISOString()}
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {accounts.map((a) => (
-                <tr key={`${a.providerId}:${a.accountId}`}>
-                  <td className="px-3 py-2">{a.providerId}</td>
-                  <td className="px-3 py-2 text-xs">
-                    <code>{a.accountId}</code>
-                  </td>
-                  <td className="px-3 py-2 text-xs">
-                    {a.hasPassword === true ? "Set" : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-xs">{a.scope ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">
-                    {a.createdAt.toISOString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </AdminTable>
         )}
       </Section>
 
@@ -318,34 +291,24 @@ export default async function AdminUserDetailPage({
         {sessions.length === 0 ? (
           <p className="text-sm text-zinc-500">No active sessions.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wide text-zinc-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">IP</th>
-                <th className="px-3 py-2 font-medium">User agent</th>
-                <th className="px-3 py-2 font-medium">Issued</th>
-                <th className="px-3 py-2 font-medium">Expires</th>
+          <AdminTable headers={["IP", "User agent", "Issued", "Expires"]}>
+            {sessions.map((s) => (
+              <tr key={s.id}>
+                <td className="px-4 py-2 text-xs">{s.ipAddress ?? "—"}</td>
+                <td className="px-4 py-2 text-xs">
+                  <span className="line-clamp-1" title={s.userAgent ?? ""}>
+                    {s.userAgent ?? "—"}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-xs text-zinc-500">
+                  {s.createdAt.toISOString()}
+                </td>
+                <td className="px-4 py-2 text-xs text-zinc-500">
+                  {s.expiresAt.toISOString()}
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {sessions.map((s) => (
-                <tr key={s.id}>
-                  <td className="px-3 py-2 text-xs">{s.ipAddress ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs">
-                    <span className="line-clamp-1" title={s.userAgent ?? ""}>
-                      {s.userAgent ?? "—"}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">
-                    {s.createdAt.toISOString()}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">
-                    {s.expiresAt.toISOString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </AdminTable>
         )}
       </Section>
 
@@ -353,28 +316,19 @@ export default async function AdminUserDetailPage({
         {pendingVerifications.length === 0 ? (
           <p className="text-sm text-zinc-500">None pending.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wide text-zinc-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">Identifier</th>
-                <th className="px-3 py-2 font-medium">Issued</th>
-                <th className="px-3 py-2 font-medium">Expires</th>
+          <AdminTable headers={["Identifier", "Issued", "Expires"]}>
+            {pendingVerifications.map((v) => (
+              <tr key={`${v.identifier}|${v.createdAt.toISOString()}`}>
+                <td className="px-4 py-2 text-xs">{v.identifier}</td>
+                <td className="px-4 py-2 text-xs text-zinc-500">
+                  {v.createdAt.toISOString()}
+                </td>
+                <td className="px-4 py-2 text-xs text-zinc-500">
+                  {v.expiresAt.toISOString()}
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {pendingVerifications.map((v) => (
-                <tr key={`${v.identifier}|${v.createdAt.toISOString()}`}>
-                  <td className="px-3 py-2 text-xs">{v.identifier}</td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">
-                    {v.createdAt.toISOString()}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">
-                    {v.expiresAt.toISOString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </AdminTable>
         )}
       </Section>
     </div>
