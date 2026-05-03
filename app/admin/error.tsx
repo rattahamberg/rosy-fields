@@ -2,8 +2,7 @@
 
 import { useEffect } from "react";
 import { PrimaryButton } from "@/app/_components/primary-button";
-
-const SHOW_DIGEST = process.env.NODE_ENV !== "production";
+import { SHOW_DIGEST } from "@/lib/env";
 
 // `unstable_retry` (Next 16.2.0+) re-fetches and re-renders the boundary's
 // children — preferred over `reset`, which only re-renders without re-fetching.
@@ -13,6 +12,8 @@ export default function AdminError({
   unstable_retry,
 }: {
   error: Error & { digest?: string };
+  // Declared because Next 16's ErrorComponent passes it; we use unstable_retry
+  // (re-fetches Server Component data) and ignore reset (re-render only).
   reset: () => void;
   unstable_retry: () => void;
 }) {

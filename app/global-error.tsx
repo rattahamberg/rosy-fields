@@ -1,6 +1,6 @@
 "use client";
 
-const SHOW_DIGEST = process.env.NODE_ENV !== "production";
+import { SHOW_DIGEST } from "@/lib/env";
 
 // Catches errors thrown during root layout rendering. Must include its own
 // <html> and <body> because the root layout did not run.

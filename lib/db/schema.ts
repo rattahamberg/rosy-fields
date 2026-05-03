@@ -59,7 +59,12 @@ export const session = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
   },
-  (t) => [index("session_user_id_idx").on(t.userId)],
+  (t) => [
+    index("session_user_id_idx").on(t.userId),
+    // Speeds up both the admin user-list LEFT JOIN (active sessions filter)
+    // and the cron purge in setup-cron.sql.
+    index("session_expires_at_idx").on(t.expiresAt),
+  ],
 );
 
 export const account = pgTable(

@@ -29,6 +29,13 @@
       "when": 1777773488727,
       "tag": "0003_admin_panel_v3",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777781917009,
+      "tag": "0004_session_expires_idx",
+      "breakpoints": true
     }
   ]
 }

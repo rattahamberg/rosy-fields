@@ -217,6 +217,7 @@ export async function addMember(formData: FormData): Promise<void> {
 
   // No SELECT pre-checks — relies on FK constraints. Eliminates TOCTOU race
   // where a household or user is deleted between the check and the insert.
+  let mutated = false;
   try {
     await db.transaction(async (tx) => {
       // RETURNING tells us whether a row actually got inserted (vs the
@@ -233,6 +234,7 @@ export async function addMember(formData: FormData): Promise<void> {
         .onConflictDoNothing()
         .returning({ userId: householdMember.userId });
       if (inserted.length === 0) return;
+      mutated = true;
       await writeAudit(
         {
           actorUserId: session.user.id,
@@ -255,8 +257,12 @@ export async function addMember(formData: FormData): Promise<void> {
     throw err;
   }
 
-  revalidatePath(`/admin/households/${householdId}`);
-  revalidatePath(`/admin/users/${userId}`);
+  // Only revalidate when something actually changed — saves a wasted RSC
+  // cache invalidation on the already-member case.
+  if (mutated) {
+    revalidatePath(`/admin/households/${householdId}`);
+    revalidatePath(`/admin/users/${userId}`);
+  }
   return redirect(redirectTo);
 }
 
@@ -272,6 +278,7 @@ export async function removeMember(formData: FormData): Promise<void> {
 
   const net = await readNetworkContext();
 
+  let mutated = false;
   await db.transaction(async (tx) => {
     // RETURNING tells us whether a row actually got deleted. Skip the audit
     // row when nothing matched (already removed via race / double-submit).
@@ -285,6 +292,7 @@ export async function removeMember(formData: FormData): Promise<void> {
       )
       .returning({ userId: householdMember.userId });
     if (deleted.length === 0) return;
+    mutated = true;
     await writeAudit(
       {
         actorUserId: session.user.id,
@@ -297,7 +305,9 @@ export async function removeMember(formData: FormData): Promise<void> {
     );
   });
 
-  revalidatePath(`/admin/households/${householdId}`);
-  revalidatePath(`/admin/users/${userId}`);
+  if (mutated) {
+    revalidatePath(`/admin/households/${householdId}`);
+    revalidatePath(`/admin/users/${userId}`);
+  }
   return redirect(redirectTo);
 }

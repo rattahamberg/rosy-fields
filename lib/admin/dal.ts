@@ -24,6 +24,10 @@ export const getCurrentRole = cache(async () => {
 // Layouts don't re-execute on soft navigations, so every admin page MUST
 // call this — the layout call alone leaves a window where a freshly-demoted
 // user can keep navigating between admin pages.
+//
+// Both `verifySession()` and the `getCurrentRole()` body call `verifySession()`
+// internally — `react.cache()` dedupes them to a single auth lookup per
+// request. Don't try to "clean up" the apparent double call.
 export const verifyAdmin = cache(async () => {
   const session = await verifySession();
   const role = await getCurrentRole();

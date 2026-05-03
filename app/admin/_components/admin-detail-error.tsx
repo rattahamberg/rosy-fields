@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-
-const SHOW_DIGEST = process.env.NODE_ENV !== "production";
+import { SHOW_DIGEST } from "@/lib/env";
 
 // Next 16's ErrorComponent passes BOTH `reset` and `unstable_retry`. Wrappers
 // must accept all three props so framework-supplied values aren't silently

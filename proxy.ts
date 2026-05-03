@@ -9,6 +9,10 @@ import { isSafePath } from "@/lib/safe-redirect";
 
 const PROTECTED_PREFIXES = ["/dashboard", "/admin"];
 
+// `/` is treated as protected: logged-in users get bounced to /dashboard,
+// logged-out users get bounced to /login. The `/` case is also special-cased
+// in the unauthenticated branch below — no `?next=/` is set because that
+// would just round-trip back to the same redirect.
 function isProtectedPath(pathname: string): boolean {
   return (
     pathname === "/" ||

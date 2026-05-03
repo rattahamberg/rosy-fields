@@ -17,9 +17,12 @@ Specific Next 16 things in THIS project:
 
 ## Auth
 
-- Session DAL: `lib/dal.ts` exposes `verifySession()` and `getUser()`.
+- Session DAL: `lib/dal.ts` exposes:
+  - `peekSession()` — returns the session or `null`, never redirects. Use in decoration-only components like `<AdminEmail>` that should degrade quietly when there's no session.
+  - `verifySession()` — returns the session or `redirect("/login")`s. Builds on `peekSession`.
+  - `getUser()` — convenience: returns `session.user` or redirects.
 - Admin DAL: `lib/admin/dal.ts` exposes `verifyAdmin()` and `getCurrentRole()`. **Always call `verifyAdmin()` at the top of every admin page** — the layout-only check is insufficient under partial rendering.
-- Both DALs are wrapped in `react.cache()`, so repeated calls in a single render dedupe.
+- All DALs are wrapped in `react.cache()`, so repeated calls in a single render dedupe to one auth lookup per request.
 - Non-admins hit `forbidden()` → `app/forbidden.tsx` (NOT `notFound()`).
 
 ## Server Actions
@@ -38,7 +41,7 @@ Every mutation MUST:
 
 ## Audit log
 
-`lib/admin/audit.ts` exposes `writeAudit(entry, txClient?)`. ALL admin mutations must write an audit row in the same transaction. View-page audits use `after()` to avoid blocking response time.
+`lib/admin/audit.ts` exposes `writeAudit(entry, options?)`. ALL admin mutations must write an audit row in the same transaction as the mutation. View-page audits use `after()` to avoid blocking response time. See **Audit context (`writeAudit`)** below for the call-site convention.
 
 ## Migrations
 

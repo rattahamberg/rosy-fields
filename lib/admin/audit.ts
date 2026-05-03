@@ -57,13 +57,19 @@ type DrizzleClient =
 //   must have pre-resolved it before opening the txn.
 // - Outside a transaction (after()-style background audits), `net` is
 //   optional and falls back to a header read.
+//
+// `client?: never` on Overload 2 is load-bearing: without it, calling
+// `writeAudit(e, opts)` where `opts: { client: tx }` (a *variable*, not a
+// literal) would resolve to Overload 2 and trigger a header read inside
+// the open transaction — the very lock-window bug we want to prevent.
+// `never` makes that variable case a hard type error.
 export function writeAudit(
   entry: AuditEntry,
   options: { client: DrizzleClient; net: NetworkContext },
 ): Promise<void>;
 export function writeAudit(
   entry: AuditEntry,
-  options?: { net?: NetworkContext },
+  options?: { client?: never; net?: NetworkContext },
 ): Promise<void>;
 export async function writeAudit(
   entry: AuditEntry,
