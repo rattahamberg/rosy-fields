@@ -2,18 +2,15 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
-import {
-  recordSettlementAction,
-  type FormState,
-} from "@/app/dashboard/households/[id]/settlements/actions";
+import { recordSettlementAction } from "@/app/dashboard/households/[id]/settlements/actions";
+import type { FormState } from "@/lib/forms";
 import { PrimaryButton } from "@/app/_components/primary-button";
 import { MoneyInput } from "@/app/_components/money-input";
+import type { Member } from "@/lib/household/queries";
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
 const INITIAL: FormState = { ok: false, error: "" };
-
-export type Member = { id: string; name: string; email: string };
 
 export function SettlementForm({
   householdId,

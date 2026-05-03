@@ -1,12 +1,13 @@
 "use client";
 
-import { AdminDetailError, type AdminDetailErrorProps } from "@/app/admin/_components";
+import {
+  DetailError,
+  type DetailErrorProps,
+} from "@/app/_components/detail-error";
 
-// Reuses AdminDetailError — the visual styling is generic, not admin-specific.
-// Rename this primitive to <DetailError> in a follow-up if it bothers anyone.
-export default function HouseholdError(props: AdminDetailErrorProps) {
+export default function HouseholdError(props: DetailErrorProps) {
   return (
-    <AdminDetailError
+    <DetailError
       {...props}
       label="household"
       logTag="household-detail error"

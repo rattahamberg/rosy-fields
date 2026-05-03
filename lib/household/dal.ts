@@ -2,7 +2,7 @@ import "server-only";
 
 import { forbidden } from "next/navigation";
 import { cache } from "react";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { householdMember } from "@/lib/db/schema";
 import { verifySession } from "@/lib/dal";
@@ -15,17 +15,21 @@ import { verifySession } from "@/lib/dal";
 // Cached per-request via react.cache() so layout + page + child fetches share
 // one membership lookup.
 export const verifyHouseholdMember = cache(async (householdId: string) => {
+  const result = await loadHouseholdContext(householdId);
+  return result.session;
+});
+
+// Combined gate + member-set fetch in a single SELECT. Use this in mutation
+// actions that need the member set (to validate participants etc.) — avoids
+// the two-roundtrip pattern of calling verifyHouseholdMember + then loading
+// the members separately.
+export const loadHouseholdContext = cache(async (householdId: string) => {
   const session = await verifySession();
-  const [row] = await db
+  const rows = await db
     .select({ userId: householdMember.userId })
     .from(householdMember)
-    .where(
-      and(
-        eq(householdMember.householdId, householdId),
-        eq(householdMember.userId, session.user.id),
-      ),
-    )
-    .limit(1);
-  if (!row) forbidden();
-  return session;
+    .where(eq(householdMember.householdId, householdId));
+  const memberIds = new Set(rows.map((r) => r.userId));
+  if (!memberIds.has(session.user.id)) forbidden();
+  return { session, memberIds };
 });

@@ -3,50 +3,36 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
-import { verifyHouseholdMember } from "@/lib/household/dal";
+import { loadHouseholdContext } from "@/lib/household/dal";
 import {
   readNetworkContext,
   type NetworkContext,
 } from "@/lib/admin/audit";
 import { writeHouseholdAudit } from "@/lib/household/audit";
 import { db } from "@/lib/db";
-import {
-  expense,
-  expenseSplit,
-  household,
-  householdMember,
-} from "@/lib/db/schema";
+import { expense, expenseSplit } from "@/lib/db/schema";
 import {
   distributeByShares,
   distributeEqual,
   fromStringToCents,
+  serializeMoney,
   validateExact,
 } from "@/lib/household/money";
-import type { verifyHouseholdMember as VerifyHM } from "@/lib/household/dal";
+import type { FormState } from "@/lib/forms";
+export type { FormState } from "@/lib/forms";
+import type { loadHouseholdContext as LoadCtx } from "@/lib/household/dal";
 
-type Session = Awaited<ReturnType<typeof VerifyHM>>;
-
-export type FormState = { ok: true } | { ok: false; error: string };
+type Session = Awaited<ReturnType<typeof LoadCtx>>["session"];
 
 const SPLIT_MODES = ["equal", "shares", "exact"] as const;
 type SplitMode = (typeof SPLIT_MODES)[number];
+const SPLIT_MODE_SET = new Set<string>(SPLIT_MODES);
 
 const DESCRIPTION_MAX = 200;
-
-// Form payload shape (FormData has multiple values per name for checkboxes
-// and per-participant numeric fields). Helper extractors below normalize.
 
 function getStringList(formData: FormData, name: string): string[] {
   const raw = formData.getAll(name);
   return raw.filter((v): v is string => typeof v === "string");
-}
-
-async function loadHouseholdMembers(householdId: string): Promise<Set<string>> {
-  const rows = await db
-    .select({ userId: householdMember.userId })
-    .from(householdMember)
-    .where(eq(householdMember.householdId, householdId));
-  return new Set(rows.map((r) => r.userId));
 }
 
 type Participant = { userId: string; shareCents: bigint };
@@ -55,8 +41,8 @@ function buildSplits(opts: {
   amountCents: bigint;
   splitMode: SplitMode;
   participantIds: string[];
-  shares: Map<string, number>; // for shares mode
-  exactCents: Map<string, bigint>; // for exact mode
+  shares: Map<string, number>;
+  exactCents: Map<string, bigint>;
   members: Set<string>;
 }): { ok: true; participants: Participant[] } | { ok: false; error: string } {
   const { amountCents, splitMode, participantIds, shares, exactCents, members } =
@@ -83,8 +69,13 @@ function buildSplits(opts: {
 
   if (splitMode === "shares") {
     const shareValues = participantIds.map((id) => shares.get(id) ?? 0);
-    if (shareValues.every((v) => v <= 0)) {
-      return { ok: false, error: "Each participant needs a positive share" };
+    // Tightened: every selected participant must have a positive share.
+    // If you want "include without owing", uncheck them instead.
+    if (shareValues.some((v) => v <= 0)) {
+      return {
+        ok: false,
+        error: "Each selected participant needs a positive share (or uncheck them)",
+      };
     }
     const portions = distributeByShares(amountCents, shareValues);
     return {
@@ -96,13 +87,15 @@ function buildSplits(opts: {
     };
   }
 
-  // exact
   const parts = participantIds.map((id) => exactCents.get(id) ?? 0n);
-  if (!validateExact(amountCents, parts)) {
+  if (parts.some((c) => c <= 0n)) {
     return {
       ok: false,
-      error: "Exact splits must sum to the total amount",
+      error: "Each selected participant needs a positive exact amount (or uncheck them)",
     };
+  }
+  if (!validateExact(amountCents, parts)) {
+    return { ok: false, error: "Exact splits must sum to the total amount" };
   }
   return {
     ok: true,
@@ -122,7 +115,7 @@ type ParsedFormData = {
   description: string;
   amountCents: bigint;
   paidBy: string;
-  spentAt: string; // YYYY-MM-DD
+  spentAt: string;
   splitMode: SplitMode;
   participantIds: string[];
   shares: Map<string, number>;
@@ -149,7 +142,7 @@ function parseExpenseForm(formData: FormData): ParsedForm {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(spentAtRaw)) {
     return { ok: false, error: "Date must be YYYY-MM-DD" };
   }
-  if (!SPLIT_MODES.includes(splitModeRaw as SplitMode)) {
+  if (!SPLIT_MODE_SET.has(splitModeRaw)) {
     return { ok: false, error: "Invalid split mode" };
   }
   const splitMode = splitModeRaw as SplitMode;
@@ -202,17 +195,10 @@ function parseExpenseForm(formData: FormData): ParsedForm {
   };
 }
 
-type AuditMeta = {
-  description: string;
-  amountCents: string; // bigint serialized as string for JSONB
-  splitMode: SplitMode;
-  participantCount: number;
-};
-
-function makeAuditMeta(d: ParsedFormData): AuditMeta {
+function makeAuditMeta(d: ParsedFormData): Record<string, unknown> {
   return {
     description: d.description,
-    amountCents: d.amountCents.toString(),
+    amountCents: serializeMoney(d.amountCents),
     splitMode: d.splitMode,
     participantCount: d.participantIds.length,
   };
@@ -273,10 +259,9 @@ export async function createExpenseAction(
   if (!parsed.ok) return parsed;
   const { data } = parsed;
 
-  const session = await verifyHouseholdMember(data.householdId);
-  const members = await loadHouseholdMembers(data.householdId);
+  const { session, memberIds } = await loadHouseholdContext(data.householdId);
 
-  if (!members.has(data.paidBy)) {
+  if (!memberIds.has(data.paidBy)) {
     return { ok: false, error: "Payer isn't in this household" };
   }
 
@@ -286,7 +271,7 @@ export async function createExpenseAction(
     participantIds: data.participantIds,
     shares: data.shares,
     exactCents: data.exactCents,
-    members,
+    members: memberIds,
   });
   if (!split.ok) return split;
 
@@ -296,10 +281,7 @@ export async function createExpenseAction(
     net,
     data,
     participants: split.participants,
-    audit: {
-      action: "expense.create",
-      metadata: makeAuditMeta(data),
-    },
+    audit: { action: "expense.create", metadata: makeAuditMeta(data) },
   });
 
   revalidatePath(`/dashboard/households/${data.householdId}`);
@@ -312,6 +294,11 @@ export async function createExpenseAction(
 // v1 edit pattern: soft-delete the old row and insert a new row. The audit
 // trail preserves the chain via metadata.previousId. The detail page links
 // to the latest row only (queries filter on deleted_at IS NULL).
+//
+// SELECT-FOR-UPDATE inside the txn (was outside in the prior version) so two
+// concurrent edits can't both pass auth + both produce a "live" successor.
+// The UPDATE WHERE includes isNull(deletedAt) and the row count is checked
+// — if 0 rows updated, another writer raced us first.
 
 export async function editExpenseAction(
   _prev: FormState,
@@ -323,33 +310,9 @@ export async function editExpenseAction(
   const previousId = String(formData.get("previousId") ?? "");
   if (!previousId) return { ok: false, error: "Missing previous expense id" };
 
-  const session = await verifyHouseholdMember(data.householdId);
-  const members = await loadHouseholdMembers(data.householdId);
+  const { session, memberIds } = await loadHouseholdContext(data.householdId);
 
-  // Authorization: only creator or payer of the previous row may edit.
-  const [existing] = await db
-    .select({
-      id: expense.id,
-      paidBy: expense.paidBy,
-      createdByUserId: expense.createdByUserId,
-      householdId: expense.householdId,
-    })
-    .from(expense)
-    .where(and(eq(expense.id, previousId), isNull(expense.deletedAt)))
-    .limit(1);
-  if (!existing) return { ok: false, error: "Expense not found" };
-  if (existing.householdId !== data.householdId) {
-    return { ok: false, error: "Household mismatch" };
-  }
-  const allowedEditors = new Set([
-    existing.paidBy,
-    existing.createdByUserId ?? "",
-  ]);
-  if (!allowedEditors.has(session.user.id)) {
-    return { ok: false, error: "Only the payer or creator can edit" };
-  }
-
-  if (!members.has(data.paidBy)) {
+  if (!memberIds.has(data.paidBy)) {
     return { ok: false, error: "Payer isn't in this household" };
   }
   const split = buildSplits({
@@ -358,20 +321,46 @@ export async function editExpenseAction(
     participantIds: data.participantIds,
     shares: data.shares,
     exactCents: data.exactCents,
-    members,
+    members: memberIds,
   });
   if (!split.ok) return split;
 
   const net = await readNetworkContext();
   const newId = crypto.randomUUID();
 
-  await db.transaction(async (tx) => {
-    // Soft-delete the old row first so a concurrent reader sees either old
-    // or new, never both.
-    await tx
+  const outcome = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        id: expense.id,
+        paidBy: expense.paidBy,
+        createdByUserId: expense.createdByUserId,
+        householdId: expense.householdId,
+      })
+      .from(expense)
+      .where(and(eq(expense.id, previousId), isNull(expense.deletedAt)))
+      .for("update")
+      .limit(1);
+    if (!existing) return { status: "notFound" as const };
+    if (existing.householdId !== data.householdId) {
+      return { status: "notFound" as const };
+    }
+    const allowedEditors = new Set([
+      existing.paidBy,
+      existing.createdByUserId ?? "",
+    ]);
+    if (!allowedEditors.has(session.user.id)) {
+      return { status: "forbidden" as const };
+    }
+
+    // Soft-delete old row by id AND deletedAt-null filter — defends against
+    // a concurrent writer that already replaced this row.
+    const updated = await tx
       .update(expense)
       .set({ deletedAt: new Date() })
-      .where(eq(expense.id, previousId));
+      .where(and(eq(expense.id, previousId), isNull(expense.deletedAt)))
+      .returning({ id: expense.id });
+    if (updated.length === 0) return { status: "raced" as const };
+
     await tx.insert(expense).values({
       id: newId,
       householdId: data.householdId,
@@ -404,7 +393,18 @@ export async function editExpenseAction(
       },
       { client: tx, net },
     );
+    return { status: "ok" as const };
   });
+
+  if (outcome.status === "notFound") {
+    return { ok: false, error: "Expense not found" };
+  }
+  if (outcome.status === "forbidden") {
+    return { ok: false, error: "Only the payer or creator can edit" };
+  }
+  if (outcome.status === "raced") {
+    return { ok: false, error: "Someone else just edited this expense — refresh and try again" };
+  }
 
   revalidatePath(`/dashboard/households/${data.householdId}`);
   revalidatePath(`/dashboard/households/${data.householdId}/expenses`);
@@ -420,9 +420,8 @@ export async function deleteExpense(formData: FormData): Promise<void> {
     return redirect(`/dashboard/households/${householdId}`);
   }
 
-  const session = await verifyHouseholdMember(householdId);
+  const { session } = await loadHouseholdContext(householdId);
 
-  // Lock the row, verify household + permission, soft-delete in one txn.
   const net = await readNetworkContext();
   const outcome = await db.transaction(async (tx) => {
     const [existing] = await tx
@@ -463,7 +462,7 @@ export async function deleteExpense(formData: FormData): Promise<void> {
         targetId: expenseId,
         metadata: {
           description: existing.description,
-          amountCents: existing.amountCents.toString(),
+          amountCents: serializeMoney(existing.amountCents),
         },
       },
       { client: tx, net },
@@ -473,17 +472,14 @@ export async function deleteExpense(formData: FormData): Promise<void> {
 
   if (outcome.status === "notFound") {
     return redirect(
-      `/dashboard/households/${householdId}/expenses?error=${encodeURIComponent("Expense not found")}`,
+      `/dashboard/households/${householdId}/expenses?error=notFound`,
     );
   }
   if (outcome.status === "forbidden") {
     return redirect(
-      `/dashboard/households/${householdId}/expenses/${expenseId}?error=${encodeURIComponent("Only the payer or creator can delete")}`,
+      `/dashboard/households/${householdId}/expenses/${expenseId}?error=forbidden`,
     );
   }
-
-  // Reference unused import to satisfy lint when no other code path uses it.
-  void household;
 
   revalidatePath(`/dashboard/households/${householdId}`);
   revalidatePath(`/dashboard/households/${householdId}/expenses`);

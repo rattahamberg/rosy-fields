@@ -3,24 +3,16 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
-import { verifyHouseholdMember } from "@/lib/household/dal";
+import { loadHouseholdContext } from "@/lib/household/dal";
 import { readNetworkContext } from "@/lib/admin/audit";
 import { writeHouseholdAudit } from "@/lib/household/audit";
 import { db } from "@/lib/db";
-import { householdMember, settlement } from "@/lib/db/schema";
-import { fromStringToCents } from "@/lib/household/money";
-
-export type FormState = { ok: true } | { ok: false; error: string };
+import { settlement } from "@/lib/db/schema";
+import { fromStringToCents, serializeMoney } from "@/lib/household/money";
+import type { FormState } from "@/lib/forms";
+export type { FormState } from "@/lib/forms";
 
 const NOTE_MAX = 200;
-
-async function loadMembers(householdId: string): Promise<Set<string>> {
-  const rows = await db
-    .select({ userId: householdMember.userId })
-    .from(householdMember)
-    .where(eq(householdMember.householdId, householdId));
-  return new Set(rows.map((r) => r.userId));
-}
 
 // ---------- recordSettlementAction ----------
 
@@ -55,9 +47,8 @@ export async function recordSettlementAction(
     return { ok: false, error: "Amount must be a positive number" };
   }
 
-  const session = await verifyHouseholdMember(householdId);
-  const members = await loadMembers(householdId);
-  if (!members.has(fromUserId) || !members.has(toUserId)) {
+  const { session, memberIds } = await loadHouseholdContext(householdId);
+  if (!memberIds.has(fromUserId) || !memberIds.has(toUserId)) {
     return { ok: false, error: "Payer and payee must be household members" };
   }
 
@@ -85,7 +76,7 @@ export async function recordSettlementAction(
         metadata: {
           fromUserId,
           toUserId,
-          amountCents: amountCents.toString(),
+          amountCents: serializeMoney(amountCents),
         },
       },
       { client: tx, net },
@@ -98,6 +89,9 @@ export async function recordSettlementAction(
 }
 
 // ---------- deleteSettlement ----------
+//
+// Permission: creator or either of the parties may delete (matches the
+// "roommates self-police" stance documented in AGENTS.md).
 
 export async function deleteSettlement(formData: FormData): Promise<void> {
   const householdId = String(formData.get("householdId") ?? "");
@@ -106,7 +100,7 @@ export async function deleteSettlement(formData: FormData): Promise<void> {
     return redirect(`/dashboard/households/${householdId}`);
   }
 
-  const session = await verifyHouseholdMember(householdId);
+  const { session } = await loadHouseholdContext(householdId);
   const net = await readNetworkContext();
 
   const outcome = await db.transaction(async (tx) => {
@@ -129,8 +123,6 @@ export async function deleteSettlement(formData: FormData): Promise<void> {
     if (existing.householdId !== householdId) {
       return { status: "notFound" as const };
     }
-    // Permission: creator or either of the parties may delete (matches the
-    // "roommates self-police" stance).
     const allowed = new Set([
       existing.createdByUserId ?? "",
       existing.fromUserId,
@@ -154,7 +146,7 @@ export async function deleteSettlement(formData: FormData): Promise<void> {
         metadata: {
           fromUserId: existing.fromUserId,
           toUserId: existing.toUserId,
-          amountCents: existing.amountCents.toString(),
+          amountCents: serializeMoney(existing.amountCents),
         },
       },
       { client: tx, net },
@@ -164,12 +156,12 @@ export async function deleteSettlement(formData: FormData): Promise<void> {
 
   if (outcome.status === "notFound") {
     return redirect(
-      `/dashboard/households/${householdId}/settlements?error=${encodeURIComponent("Settlement not found")}`,
+      `/dashboard/households/${householdId}/settlements?error=notFound`,
     );
   }
   if (outcome.status === "forbidden") {
     return redirect(
-      `/dashboard/households/${householdId}/settlements?error=${encodeURIComponent("Only the parties or creator can delete")}`,
+      `/dashboard/households/${householdId}/settlements?error=forbidden`,
     );
   }
 

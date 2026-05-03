@@ -230,12 +230,11 @@ export const expense = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
-    index("expense_household_spent_at_idx").on(
-      t.householdId,
-      t.spentAt.desc(),
-    ),
-    index("expense_household_active_idx")
-      .on(t.householdId)
+    // Composite partial covers active-list reads (filter + sort) in one
+    // index — replaces the two prior indexes (`spent_at_idx` and the
+    // partial `active_idx`).
+    index("expense_household_active_sorted_idx")
+      .on(t.householdId, t.spentAt.desc(), t.createdAt.desc())
       .where(sql`${t.deletedAt} IS NULL`),
     index("expense_paid_by_idx").on(t.paidBy),
     index("expense_created_by_idx").on(t.createdByUserId),
@@ -291,15 +290,15 @@ export const settlement = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
-    index("settlement_household_settled_at_idx").on(
-      t.householdId,
-      t.settledAt.desc(),
-    ),
-    index("settlement_household_active_idx")
-      .on(t.householdId)
+    // Composite partial — same rationale as the expense version above.
+    index("settlement_household_active_sorted_idx")
+      .on(t.householdId, t.settledAt.desc(), t.createdAt.desc())
       .where(sql`${t.deletedAt} IS NULL`),
     index("settlement_from_user_idx").on(t.fromUserId),
     index("settlement_to_user_idx").on(t.toUserId),
+    // FK index — created_by_user_id is SET NULL on user delete; without
+    // an index Postgres scans on every user removal.
+    index("settlement_created_by_idx").on(t.createdByUserId),
     check("settlement_amount_positive", sql`${t.amountCents} > 0`),
     check(
       "settlement_distinct_parties",

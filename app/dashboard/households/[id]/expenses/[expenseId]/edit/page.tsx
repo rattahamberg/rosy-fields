@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { forbidden, notFound } from "next/navigation";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { verifyHouseholdMember } from "@/lib/household/dal";
 import { db } from "@/lib/db";
@@ -9,6 +9,7 @@ import {
   householdMember,
   user,
 } from "@/lib/db/schema";
+import { centsToDecimalString } from "@/lib/household/money";
 import { ExpenseForm } from "../../expense-form";
 
 export const metadata: Metadata = {
@@ -16,6 +17,8 @@ export const metadata: Metadata = {
 };
 
 type Params = Promise<{ id: string; expenseId: string }>;
+
+const SPLIT_MODES = new Set(["equal", "shares", "exact"]);
 
 export default async function EditExpensePage({
   params,
@@ -43,15 +46,26 @@ export default async function EditExpensePage({
 
   if (!target || target.householdId !== id) notFound();
 
+  // Validate the schema-text splitMode at runtime — the column type is
+  // `text` so TS gives us `string`, but the DB value should match the
+  // canonical SPLIT_MODES set.
+  if (!SPLIT_MODES.has(target.splitMode)) notFound();
+
   const canEdit =
     session.user.id === target.paidBy ||
     session.user.id === target.createdByUserId;
-  if (!canEdit) notFound(); // hides the route from non-editors
+  if (!canEdit) forbidden();
 
   const splits = await db
     .select({ userId: expenseSplit.userId, shareCents: expenseSplit.shareCents })
     .from(expenseSplit)
-    .where(eq(expenseSplit.expenseId, expenseId));
+    .innerJoin(expense, eq(expense.id, expenseSplit.expenseId))
+    .where(
+      and(
+        eq(expenseSplit.expenseId, expenseId),
+        eq(expense.householdId, id),
+      ),
+    );
 
   const members = await db
     .select({ id: user.id, name: user.name, email: user.email })
@@ -67,14 +81,13 @@ export default async function EditExpensePage({
     exact[m.id] = "";
   }
   for (const s of splits) {
-    const n = Number(s.shareCents) / 100;
-    exact[s.userId] = n.toFixed(2);
+    exact[s.userId] = centsToDecimalString(s.shareCents);
   }
 
   const initial = {
     expenseId,
     description: target.description,
-    amount: (Number(target.amountCents) / 100).toFixed(2),
+    amount: centsToDecimalString(target.amountCents),
     paidBy: target.paidBy,
     spentAt: target.spentAt,
     splitMode: target.splitMode as "equal" | "shares" | "exact",

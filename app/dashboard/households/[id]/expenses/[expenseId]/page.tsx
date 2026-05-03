@@ -15,6 +15,11 @@ export const metadata: Metadata = {
 type Params = Promise<{ id: string; expenseId: string }>;
 type SearchParams = Promise<{ error?: string }>;
 
+const ERROR_MESSAGES: Record<string, string> = {
+  notFound: "Expense not found",
+  forbidden: "Only the payer or creator can delete",
+};
+
 export default async function ExpenseDetailPage({
   params,
   searchParams,
@@ -50,6 +55,9 @@ export default async function ExpenseDetailPage({
 
   if (!target || target.householdId !== id) notFound();
 
+  // Defensive: scope splits to the same household via inner-join. The
+  // top-level guard above already gates this page, but if this query is
+  // ever called from elsewhere the join keeps it household-scoped.
   const splits = await db
     .select({
       userId: expenseSplit.userId,
@@ -58,12 +66,20 @@ export default async function ExpenseDetailPage({
       name: user.name,
     })
     .from(expenseSplit)
+    .innerJoin(expense, eq(expense.id, expenseSplit.expenseId))
     .innerJoin(user, eq(user.id, expenseSplit.userId))
-    .where(eq(expenseSplit.expenseId, expenseId));
+    .where(
+      and(
+        eq(expenseSplit.expenseId, expenseId),
+        eq(expense.householdId, id),
+      ),
+    );
 
   const canEdit =
     session.user.id === target.paidBy ||
     session.user.id === target.createdByUserId;
+
+  const errorMessage = error ? ERROR_MESSAGES[error] : null;
 
   return (
     <div className="space-y-6">
@@ -83,12 +99,12 @@ export default async function ExpenseDetailPage({
         </Link>
       </div>
 
-      {error && (
+      {errorMessage && (
         <p
           role="alert"
           className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"
         >
-          {error}
+          {errorMessage}
         </p>
       )}
 

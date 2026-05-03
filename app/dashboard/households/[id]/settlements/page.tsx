@@ -14,6 +14,11 @@ type SearchParams = Promise<{ error?: string }>;
 
 const PAGE_LIMIT = 50;
 
+const ERROR_MESSAGES: Record<string, string> = {
+  notFound: "Settlement not found",
+  forbidden: "Only the parties or creator can delete",
+};
+
 export default async function SettlementsListPage({
   params,
   searchParams,
@@ -25,6 +30,8 @@ export default async function SettlementsListPage({
   const { error } = await searchParams;
   const session = await verifyHouseholdMember(id);
   const settlements = await listSettlementsQuery(id, PAGE_LIMIT);
+
+  const errorMessage = error ? ERROR_MESSAGES[error] : null;
 
   return (
     <div className="space-y-6">
@@ -38,12 +45,12 @@ export default async function SettlementsListPage({
         </Link>
       </div>
 
-      {error && (
+      {errorMessage && (
         <p
           role="alert"
           className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300"
         >
-          {error}
+          {errorMessage}
         </p>
       )}
 

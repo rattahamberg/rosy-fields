@@ -5,12 +5,15 @@ import Link from "next/link";
 import {
   createExpenseAction,
   editExpenseAction,
-  type FormState,
 } from "@/app/dashboard/households/[id]/expenses/actions";
+import type { FormState } from "@/lib/forms";
 import { PrimaryButton } from "@/app/_components/primary-button";
 import { MoneyInput } from "@/app/_components/money-input";
-
-export type Member = { id: string; name: string; email: string };
+import {
+  centsToDecimalString,
+  fromStringToCents,
+} from "@/lib/household/money";
+import type { Member } from "@/lib/household/queries";
 
 type SplitMode = "equal" | "shares" | "exact";
 
@@ -18,17 +21,17 @@ const TODAY = () => new Date().toISOString().slice(0, 10);
 
 const INITIAL: FormState = { ok: false, error: "" };
 
-type ExistingValues = {
+export type ExistingValues = {
   expenseId: string;
   description: string;
-  amount: string; // already-formatted decimal e.g. "12.34"
+  amount: string; // decimal string e.g. "12.34"
   paidBy: string;
   spentAt: string;
   splitMode: SplitMode;
   notes: string;
   participantIds: string[];
-  shares: Record<string, number>; // by user id
-  exact: Record<string, string>; // by user id, decimal string
+  shares: Record<string, number>;
+  exact: Record<string, string>;
 };
 
 export function ExpenseForm({
@@ -63,20 +66,29 @@ export function ExpenseForm({
   );
   const [amount, setAmount] = useState(initial?.amount ?? "");
 
-  const exactSum = useMemo(() => {
-    let s = 0;
-    for (const id of participantIds) {
-      const v = Number(exact[id] ?? "0");
-      if (Number.isFinite(v)) s += v;
+  // Bigint accumulation: parse each row's exact value into cents (skipping
+  // unparseable / empty), sum, compare against the total. Avoids the
+  // 0.1+0.2=0.30000000000000004 floating-point trap on the display hint.
+  const remainingCents = useMemo(() => {
+    if (splitMode !== "exact") return 0n;
+    let amountCents: bigint;
+    try {
+      amountCents = fromStringToCents(amount || "0");
+    } catch {
+      return 0n;
     }
-    return Math.round(s * 100) / 100;
-  }, [participantIds, exact]);
-
-  const amountNumber = Number(amount);
-  const exactRemaining =
-    Number.isFinite(amountNumber) && splitMode === "exact"
-      ? Math.round((amountNumber - exactSum) * 100) / 100
-      : 0;
+    let sum = 0n;
+    for (const id of participantIds) {
+      const raw = exact[id];
+      if (!raw) continue;
+      try {
+        sum += fromStringToCents(raw);
+      } catch {
+        // Skip rows the user is mid-typing.
+      }
+    }
+    return amountCents - sum;
+  }, [splitMode, amount, participantIds, exact]);
 
   function toggleParticipant(id: string) {
     setParticipantIds((prev) => {
@@ -111,7 +123,7 @@ export function ExpenseForm({
           <MoneyInput
             name="amount"
             defaultValue={amount}
-            onChange={(e) => setAmount(e.currentTarget.value)}
+            onValueChange={setAmount}
             className="w-full"
           />
         </Field>
@@ -225,15 +237,15 @@ export function ExpenseForm({
           </ul>
         </div>
 
-        {splitMode === "exact" && amountNumber > 0 ? (
+        {splitMode === "exact" && amount.length > 0 ? (
           <p
             className={`text-xs font-mono ${
-              exactRemaining === 0
+              remainingCents === 0n
                 ? "text-emerald-600 dark:text-emerald-400"
                 : "text-amber-700 dark:text-amber-300"
             }`}
           >
-            Remaining: {exactRemaining.toFixed(2)} (must reach 0.00 to submit)
+            Remaining: {centsToDecimalString(remainingCents)} (must reach 0.00 to submit)
           </p>
         ) : null}
       </div>

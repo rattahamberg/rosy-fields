@@ -8,7 +8,7 @@ import {
   listExpensesQuery,
   listSettlementsQuery,
 } from "@/lib/household/queries";
-import { fromCentsToString } from "@/lib/household/money";
+import { centsToDecimalString, fromCentsToString } from "@/lib/household/money";
 import { db } from "@/lib/db";
 import { household } from "@/lib/db/schema";
 import { PrimaryButton } from "@/app/_components/primary-button";
@@ -173,7 +173,7 @@ export default async function HouseholdHome({ params }: { params: Params }) {
                       {s.fromUserId === session.user.id ||
                       s.toUserId === session.user.id ? (
                         <Link
-                          href={`/dashboard/households/${id}/settlements/new?fromUserId=${s.fromUserId}&toUserId=${s.toUserId}&amount=${(Number(s.amountCents) / 100).toFixed(2)}`}
+                          href={`/dashboard/households/${id}/settlements/new?fromUserId=${s.fromUserId}&toUserId=${s.toUserId}&amount=${centsToDecimalString(s.amountCents)}`}
                           className="text-xs text-blue-600 hover:underline dark:text-blue-400"
                         >
                           Record →

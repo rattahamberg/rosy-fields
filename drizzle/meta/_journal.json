@@ -43,6 +43,13 @@
       "when": 1777784422902,
       "tag": "0005_expense_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777786170264,
+      "tag": "0006_ledger_index_optimizations",
+      "breakpoints": true
     }
   ]
 }

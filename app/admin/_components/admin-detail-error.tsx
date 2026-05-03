@@ -1,54 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
-import { SHOW_DIGEST } from "@/lib/env";
-
-// Next 16's ErrorComponent passes BOTH `reset` and `unstable_retry`. Wrappers
-// must accept all three props so framework-supplied values aren't silently
-// dropped. `unstable_retry` is preferred (re-fetches Server Component data);
-// `reset` is kept on the type for forwards-compat.
-export type AdminDetailErrorProps = {
-  error: Error & { digest?: string };
-  reset: () => void;
-  unstable_retry: () => void;
-};
-
-// Per-detail-page error UI. Used by `app/admin/users/[id]/error.tsx` and
-// `app/admin/households/[id]/error.tsx` so a row-level failure surfaces
-// inside the admin shell without unmounting the nav.
-//
-// Note: `unstable_retry` is the Next 16.2.0+ replacement for `reset` and
-// will likely be renamed to `retry` once the API stabilises.
-export function AdminDetailError({
-  error,
-  unstable_retry,
-  label,
-  logTag,
-}: AdminDetailErrorProps & {
-  label: string;
-  logTag: string;
-}) {
-  useEffect(() => {
-    console.error(logTag, error);
-  }, [error, logTag]);
-
-  return (
-    <div className="space-y-4 rounded-md border border-red-300 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
-      <h2 className="text-sm font-semibold text-red-900 dark:text-red-200">
-        Couldn&apos;t load this {label}
-      </h2>
-      {SHOW_DIGEST && error.digest ? (
-        <p className="text-xs text-red-800 dark:text-red-300">
-          Reference: <code>{error.digest}</code>
-        </p>
-      ) : null}
-      <button
-        type="button"
-        onClick={() => unstable_retry()}
-        className="rounded bg-red-600 px-3 py-1.5 text-sm text-white"
-      >
-        Try again
-      </button>
-    </div>
-  );
-}
+// Re-export of the now-shared DetailError. Kept here so the admin barrel
+// continues to expose AdminDetailError + AdminDetailErrorProps without
+// breaking import paths in the admin tree.
+export {
+  DetailError as AdminDetailError,
+  type DetailErrorProps as AdminDetailErrorProps,
+} from "@/app/_components/detail-error";

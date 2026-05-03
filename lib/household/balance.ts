@@ -8,8 +8,10 @@ export type MemberBalance = {
   name: string;
   email: string;
   // Positive = others owe this user; Negative = this user owes others.
-  // Sums to zero across the household (modulo the equal-split-remainder
-  // distribution which keeps every expense's splits exact-summing).
+  // Sums to zero across the household (modulo equal-split-remainder
+  // distribution, which keeps every expense's splits exact-summing).
+  // Members with no activity surface here too, with balanceCents = 0n —
+  // simplifyDebts filters them out before matching.
   balanceCents: bigint;
 };
 
@@ -19,6 +21,12 @@ export type MemberBalance = {
 //   + all settlement.amount_cents this user RECEIVED
 //   - all settlement.amount_cents this user PAID OUT
 // Excludes soft-deleted rows.
+//
+// The settlement scan is a SINGLE pass with a CASE-folded sum (was two
+// passes — `settled_out` and `settled_in` — pre-optimization).
+//
+// NOTE: Postgres returns BIGINT to the wire as text. The `db.execute<...>`
+// generic types `balance_cents` as `string`; we wrap with `BigInt()` below.
 export async function computeBalances(
   householdId: string,
 ): Promise<MemberBalance[]> {
@@ -41,33 +49,41 @@ export async function computeBalances(
       WHERE household_id = ${householdId} AND deleted_at IS NULL
       GROUP BY paid_by
     ),
-    settled_out AS (
-      SELECT from_user_id AS user_id, SUM(amount_cents)::bigint AS settled_out_cents
-      FROM settlement
-      WHERE household_id = ${householdId} AND deleted_at IS NULL
-      GROUP BY from_user_id
-    ),
-    settled_in AS (
-      SELECT to_user_id AS user_id, SUM(amount_cents)::bigint AS settled_in_cents
-      FROM settlement
-      WHERE household_id = ${householdId} AND deleted_at IS NULL
-      GROUP BY to_user_id
+    -- One scan over settlement: aggregate per user_id with CASE folding
+    -- both directions. Halves the row reads vs. two separate CTEs.
+    settled AS (
+      SELECT
+        user_id,
+        SUM(in_cents)::bigint AS in_cents,
+        SUM(out_cents)::bigint AS out_cents
+      FROM (
+        SELECT to_user_id AS user_id,
+               amount_cents AS in_cents,
+               0::bigint AS out_cents
+        FROM settlement
+        WHERE household_id = ${householdId} AND deleted_at IS NULL
+        UNION ALL
+        SELECT from_user_id AS user_id,
+               0::bigint AS in_cents,
+               amount_cents AS out_cents
+        FROM settlement
+        WHERE household_id = ${householdId} AND deleted_at IS NULL
+      ) s
+      GROUP BY user_id
     )
     SELECT u.id AS user_id, u.name, u.email,
       (COALESCE(p.paid_cents, 0)
         - COALESCE(o.owed_cents, 0)
-        + COALESCE(si.settled_in_cents, 0)
-        - COALESCE(so.settled_out_cents, 0))::bigint AS balance_cents
+        + COALESCE(st.in_cents, 0)
+        - COALESCE(st.out_cents, 0))::bigint AS balance_cents
     FROM "user" u
     JOIN household_member hm ON hm.user_id = u.id
     LEFT JOIN paid p ON p.user_id = u.id
     LEFT JOIN owed o ON o.user_id = u.id
-    LEFT JOIN settled_in si ON si.user_id = u.id
-    LEFT JOIN settled_out so ON so.user_id = u.id
+    LEFT JOIN settled st ON st.user_id = u.id
     WHERE hm.household_id = ${householdId}
     ORDER BY u.email
   `);
-  // pg returns bigints as strings via text protocol; convert.
   return rows.rows.map((r) => ({
     userId: r.user_id,
     name: r.name,
@@ -97,7 +113,6 @@ export function simplifyDebts(
   const out: SettleSuggestion[] = [];
 
   while (pool.length > 1) {
-    // Sort each iteration: cheap for hobby-scale member counts.
     pool.sort((a, b) => {
       if (a.balance < b.balance) return -1;
       if (a.balance > b.balance) return 1;
@@ -118,7 +133,6 @@ export function simplifyDebts(
     debtor.balance += transfer;
     creditor.balance -= transfer;
 
-    // Remove zeroed entries from the pool.
     if (debtor.balance === 0n) pool.shift();
     if (creditor.balance === 0n) {
       const idx = pool.findIndex((p) => p.userId === creditor.userId);

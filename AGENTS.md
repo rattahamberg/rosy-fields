@@ -52,12 +52,22 @@ ALL mutations must write an audit row in the SAME transaction as the mutation. V
 
 ## Household ledger
 
-- DAL: `lib/household/dal.ts` exposes `verifyHouseholdMember(householdId)`. **Admin role does NOT bypass this gate** — admins manage households, they don't auto-snoop financial contents. Add yourself as a member first.
-- Money math: ALL amounts are `bigint` cents. Never `number`, never `numeric`. Conversion via `lib/household/money.ts` (`fromStringToCents`, `fromCentsToString`, `distributeEqual`, `distributeByShares`, `validateExact`).
-- Soft-delete: `expense` and `settlement` use `deleted_at` instead of hard deletes. Edits create a new row + soft-delete the old. **Every read query must filter `WHERE deleted_at IS NULL`** — there are partial indexes on `(household_id) WHERE deleted_at IS NULL` for both tables.
-- Balance computation lives in `lib/household/balance.ts`: `computeBalances(householdId)` returns per-member nets; `simplifyDebts(balances)` runs the greedy creditor↔debtor matcher for "settle up" suggestions.
+- DAL: `lib/household/dal.ts` exposes:
+  - `verifyHouseholdMember(householdId)` — gate-only.
+  - `loadHouseholdContext(householdId)` — gate AND returns `{ session, memberIds }` in one SELECT. Use this in mutation actions that need the member set (avoids two roundtrips).
+- **Admin role does NOT bypass this gate** — admins manage households, they don't auto-snoop financial contents. Add yourself as a member first.
+- Money math: ALL amounts are `bigint` cents. Never `number`, never `numeric`. Conversion via `lib/household/money.ts` (`fromStringToCents`, `fromCentsToString`, `centsToDecimalString`, `distributeEqual`, `distributeByShares`, `validateExact`, `serializeMoney`). Use `serializeMoney(cents)` when packing money values into JSONB audit metadata.
+- Soft-delete: `expense` and `settlement` use `deleted_at` instead of hard deletes. Edits create a new row + soft-delete the old. **Every read query must filter `WHERE deleted_at IS NULL`** — there are composite-partial indexes on `(household_id, sort_col DESC, created_at DESC) WHERE deleted_at IS NULL` for both tables.
+- Balance computation lives in `lib/household/balance.ts`: `computeBalances(householdId)` returns per-member nets via raw SQL CTE (single-pass settlement aggregation); `simplifyDebts(balances)` runs the greedy creditor↔debtor matcher for "settle up" suggestions.
 - Frozen splits: members who join after an expense don't retroactively share it. `expense_split` rows are immutable per expense version.
-- Permissions: anyone in the household can view; only the original `paidBy` or `createdByUserId` can edit/delete an expense; settlements deletable by either party or the creator.
+- Permissions:
+  - Expenses: anyone in the household can view; only the original `paidBy` or `createdByUserId` can edit/delete.
+  - Settlements: anyone in the household can view; the `createdByUserId`, `fromUserId`, or `toUserId` can delete (no edit action in v1).
+- **Lock-row-in-txn rule**: every mutation that authorizes against a row's current state MUST do the SELECT inside the txn with `.for("update")` (see `editExpenseAction`, `deleteExpense`, `deleteSettlement`, `deleteHousehold`). External-then-mutate is a TOCTOU race waiting to happen.
+
+## Forms
+
+`FormState` is a project-wide convention living in `lib/forms.ts` — every Server Action that pairs with `useActionState` returns this shape. Don't redeclare it locally.
 
 ## Migrations
 

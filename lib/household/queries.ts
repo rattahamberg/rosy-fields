@@ -4,6 +4,11 @@ import { aliasedTable, and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { expense, settlement, user } from "@/lib/db/schema";
 
+// Shared shape for member pickers in forms. Lives here because it's the
+// row shape returned by the household-member + user join used by both
+// expense-form and settlement-form.
+export type Member = { id: string; name: string; email: string };
+
 // Recent expenses for a household, with paid-by user joined. Excludes
 // soft-deleted. Paged by limit; cursor pagination is v2.
 export function listExpensesQuery(householdId: string, limit: number) {

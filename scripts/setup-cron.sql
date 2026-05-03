@@ -32,5 +32,14 @@ SELECT cron.schedule(
   $$DELETE FROM admin_audit_log WHERE created_at < now() - interval '90 days'$$
 );
 
+-- Weekly on Sunday at 03:45 UTC: drop household audit log entries older
+-- than 90 days. Uses household_audit_log_household_idx (household_id,
+-- created_at DESC) for the range scan.
+SELECT cron.schedule(
+  'purge-old-household-audit-log',
+  '45 3 * * 0',
+  $$DELETE FROM household_audit_log WHERE created_at < now() - interval '90 days'$$
+);
+
 -- To inspect:    SELECT * FROM cron.job;
 -- To unschedule: SELECT cron.unschedule('purge-expired-sessions');
